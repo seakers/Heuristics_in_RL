@@ -1,0 +1,7 @@
+package seakers.eossrl.actions.assignment;
+
+import seakers.vassarexecheur.search.operators.RepairInstrumentOrbitAssigning;
+
+public class RepairInstrumentOrbitRelations extends RepairInstrumentOrbitAssigning {
+    
+}

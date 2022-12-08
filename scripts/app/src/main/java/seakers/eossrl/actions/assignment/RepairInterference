@@ -1,0 +1,7 @@
+package seakers.eossrl.actions.assignment;
+
+import seakers.vassarexecheur.search.operators.RepairInterferenceAssigning;
+
+public class RepairInterference extends RepairInterferenceAssigning {
+    
+}

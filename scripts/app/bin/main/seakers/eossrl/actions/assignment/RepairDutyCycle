@@ -1,0 +1,7 @@
+package seakers.eossrl.actions.assignment;
+
+import seakers.vassarexecheur.search.operators.RepairDutyCycleAssigning;
+
+public class RepairDutyCycle extends RepairDutyCycleAssigning {
+    
+}
