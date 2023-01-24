@@ -1,7 +1,0 @@
-package seakers.eossrl.actions.assignment;
-
-import seakers.vassarexecheur.search.operators.RepairPackingEfficiencyAdditionAssigning;
-
-public class RepairPackingEfficiency extends RepairPackingEfficiencyAdditionAssigning {
-    
-}

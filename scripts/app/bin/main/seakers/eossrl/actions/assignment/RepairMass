@@ -1,7 +1,0 @@
-pakcage seakers.eossrl.actions.assignment;
-
-import seakers.vassarexecheur.search.operators.assigning.RepairMassAssigning;
-
-public class RepairMass extends RepairMassAssigning {
-    
-}

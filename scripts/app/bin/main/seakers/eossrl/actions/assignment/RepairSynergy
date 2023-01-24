@@ -1,7 +1,0 @@
-package seakers.eossrl.actions.assignment;
-
-import seakers.vassarexecheur.search.operators.assigning.RepairSynergyAdditionAssigning;
-
-public class RepairSynergy extends RepairSynergyAdditionAssigning {
-
-}
