@@ -1,2 +1,2 @@
-# DeepRL_AOS_EOSS
- Using Deep RL as a stateful AOS for the EOSS problem
+# Heuristics in RL
+ Exploring methods to incorporate different design heuristic implementations into Deep RL for design optimization
