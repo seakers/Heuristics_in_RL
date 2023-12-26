@@ -1,7 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="7258ee06-72c4-48ca-972c-4ffd87eeca34" name="Default Changelist" comment="" />
+    <list default="true" id="7258ee06-72c4-48ca-972c-4ffd87eeca34" name="Default Changelist" comment="">
+      <change afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/metamaterial/MetamaterialDesignOperations.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewaytest/GatewayIntegerTestMainStart.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewaytest/TestIntegerProblemDesign.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.bin" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.bin" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gradle/buildOutputCleanup/outputFiles.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/buildOutputCleanup/outputFiles.bin" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/build.gradle" beforeDir="false" afterPath="$PROJECT_DIR$/build.gradle" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/python/envs/ArteryProblemEnv.py" beforeDir="false" afterPath="$PROJECT_DIR$/python/envs/ArteryProblemEnv.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/python/envs/TrussProblemEnv.py" beforeDir="false" afterPath="$PROJECT_DIR$/python/envs/TrussProblemEnv.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/python/test/test_py4j_python.py" beforeDir="false" afterPath="$PROJECT_DIR$/python/test/test_py4j_python.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/GatewayMainStart.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/AssignmentProblemGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/AssignmentDesignOperations.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/PartitioningProblemGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/PartitioningDesignOperations.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/metamaterial/ArteryProblemGateway.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/metamaterial/TrussProblemGateway.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewaytest/Py4JTestGateway.java" beforeDir="false" />
+    </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -16,6 +37,37 @@
       <ProjectState />
     </projectState>
   </component>
+  <component name="ExternalProjectsManager">
+    <system id="GRADLE">
+      <state>
+        <task path="$PROJECT_DIR$">
+          <activation />
+        </task>
+        <projects_view>
+          <tree_state>
+            <expand>
+              <path>
+                <item name="" type="6a2764b6:ExternalProjectsStructure$RootNode" />
+                <item name="heuristicsinrl" type="f1a62948:ProjectNode" />
+              </path>
+              <path>
+                <item name="" type="6a2764b6:ExternalProjectsStructure$RootNode" />
+                <item name="heuristicsinrl" type="f1a62948:ProjectNode" />
+                <item name="Tasks" type="e4a08cd1:TasksNode" />
+              </path>
+              <path>
+                <item name="" type="6a2764b6:ExternalProjectsStructure$RootNode" />
+                <item name="heuristicsinrl" type="f1a62948:ProjectNode" />
+                <item name="Tasks" type="e4a08cd1:TasksNode" />
+                <item name="build" type="c8890929:TasksNode$1" />
+              </path>
+            </expand>
+            <select />
+          </tree_state>
+        </projects_view>
+      </state>
+    </system>
+  </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
@@ -23,16 +75,20 @@
       </list>
     </option>
   </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
   <component name="ProjectCodeStyleSettingsMigration">
     <option name="version" value="1" />
   </component>
   <component name="ProjectId" id="2YPNjRZeA75TLFQzhJoG81eCpXE" />
   <component name="PropertiesComponent">
-    <property name="last_opened_file_path" value="C:/Program Files/Java/jdk-12.0.2" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
     <property name="settings.editor.selected.configurable" value="preferences.externalDependencies" />
   </component>
   <component name="RecentsManager">
     <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
+      <recent name="seakers.gatewaytest" />
       <recent name="seakers.gatewayclasses.metamaterial" />
       <recent name="seakers.gatewayclasses.eoss" />
       <recent name="seakers" />
@@ -50,6 +106,100 @@
       </list>
     </option>
   </component>
+  <component name="RunManager" selected="Gradle.Heuristics in RL [clean]">
+    <configuration name="GatewayBinaryTestMainStart" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="seakers.gatewaytest.GatewayBinaryTestMainStart" />
+      <module name="heuristicsinrl.main" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="seakers.gatewaytest.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="GatewayIntegerTestMainStart" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="seakers.gatewaytest.GatewayIntegerTestMainStart" />
+      <module name="heuristicsinrl.main" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="seakers.gatewaytest.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Heuristics in RL [assemble]" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+      <ExternalSystemSettings>
+        <option name="executionName" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="externalSystemIdString" value="GRADLE" />
+        <option name="scriptParameters" />
+        <option name="taskDescriptions">
+          <list />
+        </option>
+        <option name="taskNames">
+          <list>
+            <option value="assemble" />
+          </list>
+        </option>
+        <option name="vmOptions" />
+      </ExternalSystemSettings>
+      <GradleScriptDebugEnabled>true</GradleScriptDebugEnabled>
+      <method v="2" />
+    </configuration>
+    <configuration name="Heuristics in RL [build]" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+      <ExternalSystemSettings>
+        <option name="executionName" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="externalSystemIdString" value="GRADLE" />
+        <option name="scriptParameters" />
+        <option name="taskDescriptions">
+          <list />
+        </option>
+        <option name="taskNames">
+          <list>
+            <option value="build" />
+          </list>
+        </option>
+        <option name="vmOptions" />
+      </ExternalSystemSettings>
+      <GradleScriptDebugEnabled>true</GradleScriptDebugEnabled>
+      <method v="2" />
+    </configuration>
+    <configuration name="Heuristics in RL [clean]" type="GradleRunConfiguration" factoryName="Gradle" temporary="true">
+      <ExternalSystemSettings>
+        <option name="executionName" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="externalSystemIdString" value="GRADLE" />
+        <option name="scriptParameters" />
+        <option name="taskDescriptions">
+          <list />
+        </option>
+        <option name="taskNames">
+          <list>
+            <option value="clean" />
+          </list>
+        </option>
+        <option name="vmOptions" />
+      </ExternalSystemSettings>
+      <GradleScriptDebugEnabled>true</GradleScriptDebugEnabled>
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Gradle.Heuristics in RL [assemble]" />
+        <item itemvalue="Application.GatewayBinaryTestMainStart" />
+        <item itemvalue="Application.GatewayIntegerTestMainStart" />
+        <item itemvalue="Gradle.Heuristics in RL [build]" />
+        <item itemvalue="Gradle.Heuristics in RL [clean]" />
+      </list>
+    </recent_temporary>
+  </component>
   <component name="SvnConfiguration">
     <configuration />
   </component>
@@ -62,5 +212,18 @@
       <updated>1700423389424</updated>
     </task>
     <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="COLUMN_ORDER" />
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
 </project>
