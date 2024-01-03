@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Gymnasium environment for Artery Problem
+Gymnasium environment for Equal Stiffness Problem
 
 @author: roshan94
 """
@@ -10,13 +10,13 @@ from support.MetamaterialSupport import MetamaterialSupport
 import matplotlib.pyplot as plt
 import numpy as np
 
-class ArteryProblemEnv(gym.Env):
+class EqualStiffnessProblemEnv(gym.Env):
     def __init__(self, n_actions, n_states, sel, sidenum, rad, E, c_target, obj_names, constr_names, heur_names):
 
-        super(ArteryProblemEnv, self).__init__()
+        super(EqualStiffnessProblemEnv, self).__init__()
 
         # Define problem parameters
-        self.prob = 'Artery'
+        self.prob = 'Truss'
         self.side_elem_length = sel
         self.side_node_number = sidenum
         self.radius = rad
@@ -25,10 +25,10 @@ class ArteryProblemEnv(gym.Env):
 
         self.metamat_support = MetamaterialSupport.__init__(sel, sidenum, rad, E, c_target, obj_names, constr_names, heur_names)
 
-        # Action space defined by n_actions possible actions
+        # Action space: defined by n_actions possible actions 
         self.action_space = spaces.MultiBinary(n_actions)
 
-        # State space defined by n_states design decisions representing complete designs
+        # State space: defined by n_states design decisions representing complete designs
         self.observation_space = spaces.MultiBinary(n_states)
 
         # Initial state
@@ -41,7 +41,7 @@ class ArteryProblemEnv(gym.Env):
         self.current_pos = self.start_pos
         self.action_members = []
         return self.current_pos
-
+    
     def step(self, action):
         # Modify design based on selected action (use method that calls Java Gateway)
         new_pos = self.metamat_support.modify_by_action(self.current_pos, action)
@@ -90,7 +90,7 @@ class ArteryProblemEnv(gym.Env):
 
             plt.plot([x1,x2], [y1,y2], color='#000000') # color - black
 
-        # Plot action (green - added member, red - removed member)
+        # Plot actions (green - added member, red - removed member)
         if action < nodal_conn_array.shape[0]: # member addition
             for member in self.action_members:
                 # Position of first node in member
@@ -102,7 +102,8 @@ class ArteryProblemEnv(gym.Env):
                 y2 = nodal_conn_array[member[1],1]
 
                 plt.plot([x1,x2], [y1,y2], color='#52a736') # color - green
-        else: # member removal
+            plt.title('Member added')
+        elif action > nodal_conn_array.shape[0] : # member removal
             for member in self.action_members:
                 # Position of first node in member
                 x1 = nodal_conn_array[member[0],0]
@@ -112,4 +113,9 @@ class ArteryProblemEnv(gym.Env):
                 x2 = nodal_conn_array[member[1],0]
                 y2 = nodal_conn_array[member[1],1]
 
-                plt.plot([x1,x2], [y1,y2], color='#FF0000') # color - red        
+                plt.plot([x1,x2], [y1,y2], color='#FF0000') # color - red      
+            plt.title('Member removed')
+        else:
+            plt.title('No change')  
+
+        

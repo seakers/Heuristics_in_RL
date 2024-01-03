@@ -4,10 +4,17 @@ import com.mathworks.engine.EngineException;
 import com.mathworks.engine.MatlabEngine;
 import org.apache.commons.math3.util.CombinatoricsUtils;
 import org.moeaframework.core.Solution;
+import org.moeaframework.core.Variation;
+import org.moeaframework.core.operator.CompoundVariation;
+import org.moeaframework.core.operator.binary.BitFlip;
 import org.moeaframework.core.variable.BinaryVariable;
 import org.moeaframework.core.variable.EncodingUtils;
 import org.moeaframework.problem.AbstractProblem;
 import seakers.trussaos.architecture.TrussRepeatableArchitecture;
+import seakers.trussaos.operators.constantradii.AddDiagonalMember;
+import seakers.trussaos.operators.constantradii.AddMember;
+import seakers.trussaos.operators.constantradii.ImproveOrientation2;
+import seakers.trussaos.operators.constantradii.RemoveIntersection2;
 import seakers.trussaos.problems.ConstantRadiusArteryProblem;
 import seakers.trussaos.problems.ConstantRadiusTrussProblem2;
 import java.util.ArrayList;
@@ -41,6 +48,11 @@ public class MetamaterialDesignOperations {
     private TrussRepeatableArchitecture currentDesign;
     private int action;
     private TrussRepeatableArchitecture newDesign;
+    private boolean[] heuristicsDeployed;
+    private ArrayList<Variation> heuristicOperators;
+    private TrussRepeatableArchitecture currentDesign;
+    private int action; // integer representing which design variable (corresponding to the repeatable truss) to add or remove
+    private boolean[] newDesign;
 
     /**
      * Constructor for class instance, only starts the Matlab engine
@@ -95,7 +107,12 @@ public class MetamaterialDesignOperations {
         this.fullNodalConnectivityArray = nodalConnectivityArray;
     }
 
-    // Run after running setting methods
+    // Setting method for heuristics deployed
+    public void setHeuristicsDeployed(boolean[] heuristicsDeployed) {
+        this.heuristicsDeployed = heuristicsDeployed;
+    }
+
+    // Run after running setting methods for parameters and heuristics deployed
     public void setProblem() {
         // Heuristic Enforcement Methods
         /**
@@ -132,12 +149,41 @@ public class MetamaterialDesignOperations {
 
         this.numberOfHeuristicObjectives = numberOfHeuristicObjectives;
         this.numberOfHeuristicConstraints = numberOfHeuristicConstraints;
+
         if (this.arteryProblem) {
             this.problem = new ConstantRadiusArteryProblem(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
         } else {
             this.problem = new ConstantRadiusTrussProblem2(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
         }
 
+        double[][] globalNodePositions;
+        if (this.arteryProblem) {
+            this.problem = new ConstantRadiusArteryProblem(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
+            globalNodePositions = ((ConstantRadiusArteryProblem) this.problem).getNodalConnectivityArray();
+        } else {
+            this.problem = new ConstantRadiusTrussProblem2(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
+            globalNodePositions = ((ConstantRadiusTrussProblem2) this.problem).getNodalConnectivityArray();
+        }
+
+        boolean maintainFeasibility = false;
+        double mutationProbability = 1. / this.problem.getNumberOfVariables();
+
+        // Order of heuristic operators -> {partial collapsibility, nodal properties, orientation, intersection}
+        Variation addMember = new CompoundVariation(new AddMember(maintainFeasibility, this.arteryProblem, this.engine, globalNodePositions, this.sideNodeNumber, this.sideElementLength, numberOfHeuristicObjectives, numberOfHeuristicConstraints), new BitFlip(mutationProbability));
+        Variation removeIntersection = new CompoundVariation(new RemoveIntersection2(this.arteryProblem, this.engine, globalNodePositions, this.sideNodeNumber, this.sideElementLength, numberOfHeuristicObjectives, numberOfHeuristicConstraints), new BitFlip(mutationProbability));
+        Variation addDiagonalMember = new CompoundVariation(new AddDiagonalMember(maintainFeasibility, this.arteryProblem, this.engine, globalNodePositions, this.sideNodeNumber, this.sideElementLength, numberOfHeuristicObjectives, numberOfHeuristicConstraints), new BitFlip(mutationProbability));
+        Variation improveOrientation = new CompoundVariation(new ImproveOrientation2(this.arteryProblem, globalNodePositions, this.targetStiffnessRatio, (int) this.sideNodeNumber, numberOfHeuristicObjectives, numberOfHeuristicConstraints), new BitFlip(mutationProbability));
+
+        Variation[] allHeuristicOperators = new Variation[]{addDiagonalMember, addMember, improveOrientation, removeIntersection};
+
+        ArrayList<Variation> deployedHeuristicOperators = new ArrayList<>();
+        for (int j = 0; j < allHeuristicOperators.length; j++) {
+            if (this.heuristicsDeployed[j]) {
+                deployedHeuristicOperators.add(allHeuristicOperators[j]);
+            }
+        }
+
+        this.heuristicOperators = deployedHeuristicOperators;
     }
 
     // Setting methods for data saving
@@ -158,7 +204,7 @@ public class MetamaterialDesignOperations {
         this.objectives = new ArrayList<>();
         this.constraints = new ArrayList<>();
         this.heuristicNames = new ArrayList<>();
-        this.newDesign = new TrussRepeatableArchitecture(new Solution(this.problem.getNumberOfVariables(), this.problem.getNumberOfObjectives(), this.problem.getNumberOfConstraints()), this.sideNodeNumber, 0, 0);
+        this.newDesign = new boolean[this.problem.getNumberOfVariables()];
     }
 
     public void setCurrentDesign(ArrayList<Boolean> design) {
@@ -207,35 +253,57 @@ public class MetamaterialDesignOperations {
     }
 
     public void operate() {
-        double[] memberToAdd = this.fullNodalConnectivityArray[this.action];
+        boolean[] newDesign;
+        if (action < (2*this.currentDesign.getNumberOfVariables() + 1)) { // Simple adding/removing of members or no change
+            newDesign = this.currentDesign.getBooleanDesignArray(this.currentDesign);
 
-        // If an edge member is to be added, add the opposite member to preserve repeatability
-        if (isEdgeMember(memberToAdd)) {
-            double[] repeatableMember = getOppositeMember(memberToAdd);
+            if (action < this.currentDesign.getNumberOfVariables()) {
+                if (!newDesign[action]) { // Add member if its not present in design
+                    newDesign[action] = true;
+                }
+            } else if (action > this.currentDesign.getNumberOfVariables()) { // Remove member if its present in design
+                if (newDesign[action - (this.currentDesign.getNumberOfVariables() + 1)]) {
+                    newDesign[action - (this.currentDesign.getNumberOfVariables() + 1)] = false;
+                }
+            } // if action == this.currentDesign.getNumberOfVariables() -> keep the same design
+        } else { // heuristic actions
+            Variation selectedHeuristicOperator = this.heuristicOperators.get(action - ((2*this.problem.getNumberOfVariables()) + 1));
+            Solution newSolution = selectedHeuristicOperator.evolve(new Solution[]{this.currentDesign})[0];
+            newDesign = this.currentDesign.getBooleanDesignArray(newSolution);
         }
 
-        ///////////// POPULATE ///////////////
-
-
+        this.newDesign = newDesign;
     }
 
-    private boolean isEdgeMember(double[] member) {
-        boolean isEdge = false;
-
-        ///////////// POPULATE ///////////////
-
-        return isEdge;
+    // Retrieval Methods
+    public boolean[] getNewDesign() {
+        return this.newDesign;
     }
 
-    private double[] getOppositeMember(double[] member) {
-        double[] oppositeMember = new double[member.length];
-
-        ///////////// POPULATE ///////////////
-
-        return oppositeMember;
+    public ArrayList<Double> getObjectives() {
+        return this.objectives;
     }
 
-    //////// IMPLEMENT IN PYTHON /////////
+    public ArrayList<Double> getConstraints() {
+        return this.constraints;
+    }
+
+    public ArrayList<Double> getHeuristics() {
+        return this.heuristics;
+    }
+
+    // Method to obtain full connectivity array for current boolean design
+    public double[][] getFullConnectivityArray() {
+        boolean[] currentBooleanDesign = currentDesign.getBooleanDesignArray(this.currentDesign);
+        return currentDesign.ConvertToFullConnectivityArray(currentBooleanDesign);
+    }
+
+    // Method to obtain full connectivity array for new boolean design (run only after operate() method)
+    public double[][] getNewDesignConnectivityArray() {
+        return currentDesign.ConvertToFullConnectivityArray(this.newDesign);
+    }
+
+    //////// MAY NOT BE REQUIRED /////////
     private double[][] getCompleteConnectivityArray(){
         int memberCount = 0;
         //int[] nodesArray = IntStream.range(1,sidenum*sidenum).toArray();
