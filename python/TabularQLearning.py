@@ -13,6 +13,13 @@ from tqdm import tqdm
 
 artery_prob = True # If true -> artery problem, false -> equal stiffness problem
 
+save_path = "C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\results"
+
+# model_sel = 0 --> Fibre Stiffness Model
+#             = 1 --> Truss Stiffness Model
+#             = 2 --> Beam Model
+model_sel = 1
+
 rad = 250e-6 # in m
 sel = 10e-3 # in m
 E = 1.8162e6 # in Pa
@@ -34,11 +41,12 @@ if artery_prob:
 n_states = math.comb(sidenum**2, 2) - 2*math.comb(sidenum, 2) # number of states = number of design variables 
 n_actions = (2*n_states)+1 # number of actions = (2*number of design variables) + 1 (first n_states actions are adding the corresponding member, 
                        # next action is no change, next n_states actions are removing the corresponding member)
+max_steps = 1000
 
 if artery_prob:
-    env = ArteryProblemEnv(n_actions=n_actions, n_states=n_states, sel=sel, sidenum=sidenum, rad=rad, E=E, c_target=c_target,obj_names=obj_names, constr_names=constr_names, heur_names=heur_names)
+    env = ArteryProblemEnv(n_actions=n_actions, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E=E, c_target=c_target, nuc_fac=nucFac, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used)
 else:
-    env = EqualStiffnessProblemEnv(n_actions=n_actions, n_states=n_states, sel=sel, sidenum=sidenum, rad=rad, E=E, c_target=c_target,obj_names=obj_names, constr_names=constr_names, heur_names=heur_names)
+    env = EqualStiffnessProblemEnv(n_actions=n_actions, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E=E, c_target=c_target, nuc_fac=nucFac, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used)
 
 # hyperparameters for the agent
 learning_rate = 0.01

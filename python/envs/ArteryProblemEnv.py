@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class ArteryProblemEnv(gym.Env):
-    def __init__(self, n_actions, n_states, sel, sidenum, rad, E, c_target, obj_names, constr_names, heur_names):
+    def __init__(self, n_actions, n_states, max_steps, model_sel, sel, sidenum, rad, E, c_target, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used):
 
         super(ArteryProblemEnv, self).__init__()
 
@@ -23,12 +23,12 @@ class ArteryProblemEnv(gym.Env):
         self.Youngs_modulus = E
         self.target_stiffrat = c_target
 
-        self.metamat_support = MetamaterialSupport.__init__(sel, sidenum, rad, E, c_target, obj_names, constr_names, heur_names)
+        self.metamat_support = MetamaterialSupport(sel=sel, sidenum=sidenum, rad=rad, E=E, c_target=c_target, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=True, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used)
 
-        # Action space defined by n_actions possible actions
-        self.action_space = spaces.MultiBinary(n_actions)
+        # Action space: defined by n_actions possible actions
+        self.action_space = spaces.Discrete(n_actions, start=0)
 
-        # State space defined by n_states design decisions representing complete designs
+        # State space: defined by n_states design decisions representing complete designs
         self.observation_space = spaces.MultiBinary(n_states)
 
         # Initial state
@@ -36,11 +36,17 @@ class ArteryProblemEnv(gym.Env):
         self.current_pos = self.start_pos
         self.action_members = []
 
-    def reset(self):
+        # Counting number of steps
+        self.step_number = 0
+        self.max_steps = max_steps
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed, options=options)
+
         # reset position to intial position
         self.current_pos = self.start_pos
         self.action_members = []
-        return self.current_pos
+        return self.current_pos, {}
 
     def step(self, action):
         # Modify design based on selected action (use method that calls Java Gateway)
@@ -52,9 +58,18 @@ class ArteryProblemEnv(gym.Env):
         self.current_pos = new_pos
 
         # Compute Reward Function
-        reward = self.metamat_support.compute_reward(self.current_pos, self.current_PF)
+        reward = self.metamat_support.compute_reward(self.current_pos)
 
-        return self.current_pos, reward, {}
+        self.step_number += 1
+        self.metamat_support.update_step_number()
+
+        terminated = False # None of the test problems have terminal states, given that they are to be optimized
+
+        truncated = False
+        if self.step_number == self.max_steps:
+            truncated = True
+
+        return new_pos, reward, terminated, truncated, {}
     
     def render(self, action):
 

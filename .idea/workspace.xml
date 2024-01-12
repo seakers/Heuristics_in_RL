@@ -1,28 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="7258ee06-72c4-48ca-972c-4ffd87eeca34" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/metamaterial/MetamaterialDesignOperations.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewaytest/GatewayIntegerTestMainStart.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewaytest/TestIntegerProblemDesign.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/executionHistory/executionHistory.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/5.2.1/fileHashes/fileHashes.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/buildOutputCleanup/buildOutputCleanup.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gradle/buildOutputCleanup/outputFiles.bin" beforeDir="false" afterPath="$PROJECT_DIR$/.gradle/buildOutputCleanup/outputFiles.bin" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/build.gradle" beforeDir="false" afterPath="$PROJECT_DIR$/build.gradle" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/python/envs/ArteryProblemEnv.py" beforeDir="false" afterPath="$PROJECT_DIR$/python/envs/ArteryProblemEnv.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/python/envs/TrussProblemEnv.py" beforeDir="false" afterPath="$PROJECT_DIR$/python/envs/TrussProblemEnv.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/python/test/test_py4j_python.py" beforeDir="false" afterPath="$PROJECT_DIR$/python/test/test_py4j_python.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/GatewayMainStart.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/AssignmentProblemGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/AssignmentDesignOperations.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/PartitioningProblemGateway.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/eoss/PartitioningDesignOperations.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/metamaterial/ArteryProblemGateway.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewayclasses/metamaterial/TrussProblemGateway.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/java/seakers/gatewaytest/Py4JTestGateway.java" beforeDir="false" />
-    </list>
+    <list default="true" id="7258ee06-72c4-48ca-972c-4ffd87eeca34" name="Default Changelist" comment="" />
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -120,12 +99,12 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="GatewayIntegerTestMainStart" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="seakers.gatewaytest.GatewayIntegerTestMainStart" />
+    <configuration name="GatewayMainClass" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="seakers.GatewayMainClass" />
       <module name="heuristicsinrl.main" />
       <extension name="coverage">
         <pattern>
-          <option name="PATTERN" value="seakers.gatewaytest.*" />
+          <option name="PATTERN" value="seakers.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -192,11 +171,11 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Gradle.Heuristics in RL [assemble]" />
-        <item itemvalue="Application.GatewayBinaryTestMainStart" />
-        <item itemvalue="Application.GatewayIntegerTestMainStart" />
         <item itemvalue="Gradle.Heuristics in RL [build]" />
         <item itemvalue="Gradle.Heuristics in RL [clean]" />
+        <item itemvalue="Application.GatewayMainClass" />
+        <item itemvalue="Gradle.Heuristics in RL [assemble]" />
+        <item itemvalue="Application.GatewayBinaryTestMainStart" />
       </list>
     </recent_temporary>
   </component>

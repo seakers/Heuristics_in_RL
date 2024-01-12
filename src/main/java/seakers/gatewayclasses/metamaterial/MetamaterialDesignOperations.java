@@ -17,7 +17,10 @@ import seakers.trussaos.operators.constantradii.ImproveOrientation2;
 import seakers.trussaos.operators.constantradii.RemoveIntersection2;
 import seakers.trussaos.problems.ConstantRadiusArteryProblem;
 import seakers.trussaos.problems.ConstantRadiusTrussProblem2;
+import seakers.vassarexecheur.search.problems.partitioning.PartitioningArchitecture;
+
 import java.util.ArrayList;
+import java.util.Arrays;
 
 public class MetamaterialDesignOperations {
 
@@ -46,13 +49,10 @@ public class MetamaterialDesignOperations {
     private ArrayList<Double> constraints;
     private ArrayList<Double> heuristics;
     private TrussRepeatableArchitecture currentDesign;
-    private int action;
-    private TrussRepeatableArchitecture newDesign;
-    private boolean[] heuristicsDeployed;
-    private ArrayList<Variation> heuristicOperators;
-    private TrussRepeatableArchitecture currentDesign;
     private int action; // integer representing which design variable (corresponding to the repeatable truss) to add or remove
-    private boolean[] newDesign;
+    private ArrayList<Boolean> heuristicsDeployed;
+    private ArrayList<Variation> heuristicOperators;
+    private int[] newDesign;
 
     /**
      * Constructor for class instance, only starts the Matlab engine
@@ -64,52 +64,59 @@ public class MetamaterialDesignOperations {
     // Set parameter for problem being solved (true -> Artery, false -> Equal Stiffness)
     public void setArteryProblem(boolean arteryProblem) {
         this.arteryProblem = arteryProblem;
+        System.out.println("Artery problem = " + Boolean.toString(arteryProblem));
     }
 
     // Run parameter setting methods before initializing problem instance parameter
     public void setSavePath(String savePath) {
         this.savePath = savePath;
+        System.out.println("save path = " + savePath);
     }
 
     public void setModelSelection(int selectedModel) {
         this.modelSelection = selectedModel;
+        System.out.println("model selection = " + Integer.toString(selectedModel));
     }
 
     public void setNumberOfVariables(int numberOfVariables) {
         this.numberOfVariables = numberOfVariables;
+        System.out.println("Number of variables = " + Integer.toString(numberOfVariables));
     }
 
     public void setSideElementLength(double sel) {
         this.sideElementLength = sel;
+        System.out.println("side element length = " + Double.toString(sel));
     }
 
     public void setSideNodeNumber(double sidenum) {
         this.sideNodeNumber = sidenum;
+        System.out.println("side node number = " + Double.toString(sidenum));
     }
 
     public void setRadius(double rad) {
         this.radius = rad;
+        System.out.println("radius = " + Double.toString(rad));
     }
 
     public void setYoungsModulus(double E) {
         this.YoungsModulus = E;
+        System.out.println("Young's Modulus = " + Double.toString(E));
     }
 
     public void setTargetStiffnessRatio(double targetStiffnessRatio) {
         this.targetStiffnessRatio = targetStiffnessRatio;
+        System.out.println("target stiffness ratio = " + Double.toString(targetStiffnessRatio));
     }
 
     public void setNucFac(double nucFac) {
         this.nucFac = nucFac;
-    }
-
-    public void setFullNodalConnectivityArray(double[][] nodalConnectivityArray) {
-        this.fullNodalConnectivityArray = nodalConnectivityArray;
+        System.out.println("nuc fac = " + Double.toString(nucFac));
     }
 
     // Setting method for heuristics deployed
-    public void setHeuristicsDeployed(boolean[] heuristicsDeployed) {
+    public void setHeuristicsDeployed(ArrayList<Boolean> heuristicsDeployed) {
         this.heuristicsDeployed = heuristicsDeployed;
+        System.out.println("Heuristics deployed = " + heuristicsDeployed);
     }
 
     // Run after running setting methods for parameters and heuristics deployed
@@ -150,12 +157,6 @@ public class MetamaterialDesignOperations {
         this.numberOfHeuristicObjectives = numberOfHeuristicObjectives;
         this.numberOfHeuristicConstraints = numberOfHeuristicConstraints;
 
-        if (this.arteryProblem) {
-            this.problem = new ConstantRadiusArteryProblem(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
-        } else {
-            this.problem = new ConstantRadiusTrussProblem2(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
-        }
-
         double[][] globalNodePositions;
         if (this.arteryProblem) {
             this.problem = new ConstantRadiusArteryProblem(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
@@ -178,25 +179,29 @@ public class MetamaterialDesignOperations {
 
         ArrayList<Variation> deployedHeuristicOperators = new ArrayList<>();
         for (int j = 0; j < allHeuristicOperators.length; j++) {
-            if (this.heuristicsDeployed[j]) {
+            if (this.heuristicsDeployed.get(j)) {
                 deployedHeuristicOperators.add(allHeuristicOperators[j]);
             }
         }
 
         this.heuristicOperators = deployedHeuristicOperators;
+        System.out.println("Problem set");
     }
 
     // Setting methods for data saving
     public void setObjectiveNames(ArrayList<String> objectiveNames) {
         this.objectiveNames = objectiveNames;
+        System.out.println("Objective Names = " + objectiveNames);
     }
 
     public void setConstraintNames(ArrayList<String> constraintNames) {
         this.constraintNames = constraintNames;
+        System.out.println("Constraint Names = " + constraintNames);
     }
 
     public void setHeuristicNames(ArrayList<String> heuristicNames) {
         this.heuristicNames = heuristicNames;
+        System.out.println("heuristic names = " + heuristicNames);
     }
 
     // Reset method for new design evaluation and manipulation
@@ -204,17 +209,23 @@ public class MetamaterialDesignOperations {
         this.objectives = new ArrayList<>();
         this.constraints = new ArrayList<>();
         this.heuristicNames = new ArrayList<>();
-        this.newDesign = new boolean[this.problem.getNumberOfVariables()];
+        this.newDesign = new int[this.problem.getNumberOfVariables()];
     }
 
-    public void setCurrentDesign(ArrayList<Boolean> design) {
+    public void setCurrentDesign(ArrayList<Integer> design) {
         Solution currentSolution = new Solution(this.problem.getNumberOfVariables(), this.problem.getNumberOfObjectives(), this.problem.getNumberOfConstraints());
         for (int i = 0; i < design.size(); i++) {
             BinaryVariable var = new BinaryVariable(1);
-            EncodingUtils.setBoolean(var, design.get(i));
+            boolean decision = false;
+            if (design.get(i) == 1) {
+                decision = true;
+            }
+            EncodingUtils.setBoolean(var, decision);
             currentSolution.setVariable(i, var);
         }
         this.currentDesign = new TrussRepeatableArchitecture(currentSolution, this.sideNodeNumber, this.numberOfHeuristicObjectives, this.numberOfHeuristicConstraints);
+        System.out.println("");
+        System.out.println("Current design = " + design);
     }
 
     public ArrayList<Double> evaluate() {
@@ -232,52 +243,78 @@ public class MetamaterialDesignOperations {
             currentConstraints.add((double) this.currentDesign.getAttribute(name));
         }
 
-        ArrayList<Double> currentHeurisics = new ArrayList<>();
+        ArrayList<Double> currentHeuristics = new ArrayList<>();
         for (String name : this.heuristicNames) {
-            currentHeurisics.add((double) this.currentDesign.getAttribute(name));
+            currentHeuristics.add((double) this.currentDesign.getAttribute(name));
         }
 
         designMetrics.addAll(currentObjectives);
         designMetrics.addAll(currentConstraints);
-        designMetrics.addAll(currentHeurisics);
+        designMetrics.addAll(currentHeuristics);
 
         this.objectives = currentObjectives;
         this.constraints = currentConstraints;
-        this.heuristics = currentHeurisics;
+        this.heuristics = currentHeuristics;
+
+        System.out.println("Design evaluation complete.");
+        System.out.println("Objectives = " + currentObjectives);
+        System.out.println("Constraints = " + currentConstraints);
+        System.out.println("Heuristics = " + currentHeuristics);
+        System.out.println("");
 
         return designMetrics;
     }
 
     public void setAction(int action) {
         this.action = action;
+        System.out.println("Action = " + Integer.toString(action));
     }
 
     public void operate() {
-        boolean[] newDesign;
+        boolean[] newBooleanDesign;
         if (action < (2*this.currentDesign.getNumberOfVariables() + 1)) { // Simple adding/removing of members or no change
-            newDesign = this.currentDesign.getBooleanDesignArray(this.currentDesign);
+            newBooleanDesign = this.currentDesign.getBooleanDesignArray(this.currentDesign); // getBooleanDesignArray must be a public method in the class
 
             if (action < this.currentDesign.getNumberOfVariables()) {
-                if (!newDesign[action]) { // Add member if its not present in design
-                    newDesign[action] = true;
+                if (!newBooleanDesign[action]) { // Add member if its not present in design
+                    newBooleanDesign[action] = true;
                 }
             } else if (action > this.currentDesign.getNumberOfVariables()) { // Remove member if its present in design
-                if (newDesign[action - (this.currentDesign.getNumberOfVariables() + 1)]) {
-                    newDesign[action - (this.currentDesign.getNumberOfVariables() + 1)] = false;
+                if (newBooleanDesign[action - (this.currentDesign.getNumberOfVariables() + 1)]) {
+                    newBooleanDesign[action - (this.currentDesign.getNumberOfVariables() + 1)] = false;
                 }
             } // if action == this.currentDesign.getNumberOfVariables() -> keep the same design
         } else { // heuristic actions
             Variation selectedHeuristicOperator = this.heuristicOperators.get(action - ((2*this.problem.getNumberOfVariables()) + 1));
             Solution newSolution = selectedHeuristicOperator.evolve(new Solution[]{this.currentDesign})[0];
-            newDesign = this.currentDesign.getBooleanDesignArray(newSolution);
+            newBooleanDesign = this.currentDesign.getBooleanDesignArray(newSolution);
+        }
+
+        int[] newDesign = new int[newBooleanDesign.length];
+        for (int i = 0; i < newBooleanDesign.length; i++) {
+            if (newBooleanDesign[i]) {
+                newDesign[i] = 1;
+            } else {
+                newDesign[i] = 0;
+            }
         }
 
         this.newDesign = newDesign;
+        System.out.println("Operation complete. New design = " + Arrays.toString(newDesign));
+        System.out.println("");
     }
 
-    // Retrieval Methods
-    public boolean[] getNewDesign() {
+    // Retrieval Methods (run after operate() and evaluate())
+    public int[] getNewDesign() {
         return this.newDesign;
+    }
+
+    public ArrayList<Double> getTrueObjectives() {
+        ArrayList<Double> trueObjectives = new ArrayList<>();
+        for (String objectiveName : this.objectiveNames) {
+            trueObjectives.add((Double) this.currentDesign.getAttribute(objectiveName));
+        }
+        return trueObjectives;
     }
 
     public ArrayList<Double> getObjectives() {
@@ -295,12 +332,16 @@ public class MetamaterialDesignOperations {
     // Method to obtain full connectivity array for current boolean design
     public double[][] getFullConnectivityArray() {
         boolean[] currentBooleanDesign = currentDesign.getBooleanDesignArray(this.currentDesign);
-        return currentDesign.ConvertToFullConnectivityArray(currentBooleanDesign);
+        return currentDesign.ConvertToFullConnectivityArray(currentBooleanDesign); // ConvertToFullConnectivityArray must be a public method in the class
     }
 
     // Method to obtain full connectivity array for new boolean design (run only after operate() method)
     public double[][] getNewDesignConnectivityArray() {
-        return currentDesign.ConvertToFullConnectivityArray(this.newDesign);
+        boolean[] newBooleanDesign = new boolean[this.newDesign.length];
+        for (int i = 0; i < this.newDesign.length; i++) {
+            newBooleanDesign[i] = this.newDesign[i] != 0;
+        }
+        return currentDesign.ConvertToFullConnectivityArray(newBooleanDesign);
     }
 
     //////// MAY NOT BE REQUIRED /////////

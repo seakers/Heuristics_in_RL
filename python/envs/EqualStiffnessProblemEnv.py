@@ -11,22 +11,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class EqualStiffnessProblemEnv(gym.Env):
-    def __init__(self, n_actions, n_states, sel, sidenum, rad, E, c_target, obj_names, constr_names, heur_names):
+    def __init__(self, n_actions, n_states, max_steps, model_sel, sel, sidenum, rad, E, c_target, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used):
 
         super(EqualStiffnessProblemEnv, self).__init__()
 
         # Define problem parameters
-        self.prob = 'Truss'
+        self.prob = 'Equal Stiffness'
         self.side_elem_length = sel
         self.side_node_number = sidenum
         self.radius = rad
         self.Youngs_modulus = E
         self.target_stiffrat = c_target
 
-        self.metamat_support = MetamaterialSupport.__init__(sel, sidenum, rad, E, c_target, obj_names, constr_names, heur_names)
+        self.metamat_support = MetamaterialSupport.__init__(sel, sidenum, rad, E, c_target, nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used)
 
         # Action space: defined by n_actions possible actions 
-        self.action_space = spaces.MultiBinary(n_actions)
+        self.action_space = spaces.Discrete(n_actions, start=0)
 
         # State space: defined by n_states design decisions representing complete designs
         self.observation_space = spaces.MultiBinary(n_states)
@@ -36,7 +36,13 @@ class EqualStiffnessProblemEnv(gym.Env):
         self.current_pos = self.start_pos
         self.action_members = []
 
-    def reset(self):
+        # Counting number of steps
+        self.step_number = 0
+        self.max_steps = max_steps
+
+    def reset(self, seed=None):
+        super().reset(seed=seed)
+
         # reset position to intial position
         self.current_pos = self.start_pos
         self.action_members = []
@@ -54,7 +60,15 @@ class EqualStiffnessProblemEnv(gym.Env):
         # Compute Reward Function
         reward = self.metamat_support.compute_reward(self.current_pos, self.current_PF)
 
-        return self.current_pos, reward, {}
+        self.step_number += 1
+
+        terminated = False # None of the test problems have terminal states, given that they are to be optimized
+
+        truncated = False
+        if self.step_number == self.max_steps:
+            truncated = True
+
+        return self.current_pos, reward, terminated, truncated, {}
     
     def render(self, action):
 
