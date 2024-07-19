@@ -1,0 +1,40 @@
+num_unique_des_episode = 1000
+
+initial_collect_steps = 750 # number of steps in the driver to populate replay buffer
+episode_collect_steps = 8 # number of steps in the driver to populate replay buffer during training
+replay_buffer_capacity = 10000 
+
+batch_size = 32 # batch size for replay buffer storage and training
+n_step_update = 32 # number of transition steps in a trajectory used to train the agent
+
+n_epochs = 5 # Number of epochs for computing policy updates, also equals agent step increment
+
+# Default values
+initial_adaptive_kl_beta = 1.0
+adaptive_kl_target = 0.01
+adaptive_kl_tolerance = 0.5 # heuristically chosen in the original paper
+log_prob_clipping = 0.05 
+kl_cutoff_coef = 0.2
+kl_cutoff_factor = 0.01
+
+actor_layer_params = (200, 120)
+actor_dropout_layer_params = (0.10, 0.05)
+
+critic_layer_params = (100, 60)
+critic_dropout_layer_params = (0.10, 0.05)
+
+learning_rate = 1e-3  
+epsilon_decay_steps = 50
+gamma = 0.99
+prob_eps_greedy = 0.05
+
+num_eval_episodes = 3  
+num_train_epsiodes = 10
+
+eval_interval = 4
+
+policy_save_interval = 4
+
+max_steps = np.Inf # No termination in training environment
+
+max_steps_eval = 50

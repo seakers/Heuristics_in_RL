@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Tabular Q-learning Agent class for both the metamaterial and satelite problems
+Q-learning agent taken from tutorial example in https://gymnasium.farama.org/tutorials/training_agents/blackjack_tutorial/
 
 @author: roshan94
 """
@@ -40,7 +41,7 @@ class TabularQLearningAgent:
 
         # with probability (1 - epsilon) act greedily (exploit)
         else:
-            return int(np.argmax(self.q_values[tuple(obs)]))
+            return np.argmax(self.q_values[tuple(obs)])
         
     def update(self, obs, action: int, reward: float, terminated: bool, next_obs):
         #Updates the Q-value of an action
@@ -49,10 +50,13 @@ class TabularQLearningAgent:
             reward + self.discount_factor * future_q_value - self.q_values[tuple(obs)][action]
         )
 
-        self.q_values[obs][action] = (
+        self.q_values[tuple(obs)][action] = (
             self.q_values[tuple(obs)][action] + self.lr * temporal_difference
         )
         self.training_error.append(temporal_difference)
 
     def decay_epsilon(self):
         self.epsilon = max(self.final_epsilon, self.epsilon - self.epsilon_decay)
+
+    def get_q_table_dict(self):
+        return dict(self.q_values)

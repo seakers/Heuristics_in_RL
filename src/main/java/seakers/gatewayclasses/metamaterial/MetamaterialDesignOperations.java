@@ -21,6 +21,7 @@ import seakers.vassarexecheur.search.problems.partitioning.PartitioningArchitect
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.ExecutionException;
 
 public class MetamaterialDesignOperations {
 
@@ -57,66 +58,69 @@ public class MetamaterialDesignOperations {
     /**
      * Constructor for class instance, only starts the Matlab engine
      */
-    public MetamaterialDesignOperations() throws InterruptedException, EngineException {
+    public MetamaterialDesignOperations() throws InterruptedException, ExecutionException {
         this.engine = MatlabEngine.startMatlab();
+
+        String matlabScriptsLocation = "C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\matlab";
+        engine.feval("addpath", matlabScriptsLocation); // Add location of MATLAB scripts used to compute objectives, constraints and heuristics to MATLAB's search path
     }
 
     // Set parameter for problem being solved (true -> Artery, false -> Equal Stiffness)
     public void setArteryProblem(boolean arteryProblem) {
         this.arteryProblem = arteryProblem;
-        System.out.println("Artery problem = " + Boolean.toString(arteryProblem));
+        //System.out.println("Artery problem = " + Boolean.toString(arteryProblem));
     }
 
     // Run parameter setting methods before initializing problem instance parameter
     public void setSavePath(String savePath) {
         this.savePath = savePath;
-        System.out.println("save path = " + savePath);
+        //System.out.println("save path = " + savePath);
     }
 
     public void setModelSelection(int selectedModel) {
         this.modelSelection = selectedModel;
-        System.out.println("model selection = " + Integer.toString(selectedModel));
+        //System.out.println("model selection = " + Integer.toString(selectedModel));
     }
 
     public void setNumberOfVariables(int numberOfVariables) {
         this.numberOfVariables = numberOfVariables;
-        System.out.println("Number of variables = " + Integer.toString(numberOfVariables));
+        //System.out.println("Number of variables = " + Integer.toString(numberOfVariables));
     }
 
     public void setSideElementLength(double sel) {
         this.sideElementLength = sel;
-        System.out.println("side element length = " + Double.toString(sel));
+        //System.out.println("side element length = " + Double.toString(sel));
     }
 
     public void setSideNodeNumber(double sidenum) {
         this.sideNodeNumber = sidenum;
-        System.out.println("side node number = " + Double.toString(sidenum));
+        //System.out.println("side node number = " + Double.toString(sidenum));
     }
 
     public void setRadius(double rad) {
         this.radius = rad;
-        System.out.println("radius = " + Double.toString(rad));
+        //System.out.println("radius = " + Double.toString(rad));
     }
 
     public void setYoungsModulus(double E) {
         this.YoungsModulus = E;
-        System.out.println("Young's Modulus = " + Double.toString(E));
+        //System.out.println("Young's Modulus = " + Double.toString(E));
     }
 
     public void setTargetStiffnessRatio(double targetStiffnessRatio) {
         this.targetStiffnessRatio = targetStiffnessRatio;
-        System.out.println("target stiffness ratio = " + Double.toString(targetStiffnessRatio));
+        //System.out.println("target stiffness ratio = " + Double.toString(targetStiffnessRatio));
     }
 
     public void setNucFac(double nucFac) {
         this.nucFac = nucFac;
-        System.out.println("nuc fac = " + Double.toString(nucFac));
+        //System.out.println("nuc fac = " + Double.toString(nucFac));
     }
 
     // Setting method for heuristics deployed
     public void setHeuristicsDeployed(ArrayList<Boolean> heuristicsDeployed) {
         this.heuristicsDeployed = heuristicsDeployed;
-        System.out.println("Heuristics deployed = " + heuristicsDeployed);
+        //System.out.println("Heuristics deployed = " + heuristicsDeployed);
     }
 
     // Run after running setting methods for parameters and heuristics deployed
@@ -185,30 +189,31 @@ public class MetamaterialDesignOperations {
         }
 
         this.heuristicOperators = deployedHeuristicOperators;
-        System.out.println("Problem set");
+        //System.out.println("Problem set");
     }
 
     // Setting methods for data saving
     public void setObjectiveNames(ArrayList<String> objectiveNames) {
         this.objectiveNames = objectiveNames;
-        System.out.println("Objective Names = " + objectiveNames);
+        //System.out.println("Objective Names = " + objectiveNames);
     }
 
     public void setConstraintNames(ArrayList<String> constraintNames) {
         this.constraintNames = constraintNames;
-        System.out.println("Constraint Names = " + constraintNames);
+        //System.out.println("Constraint Names = " + constraintNames);
     }
 
     public void setHeuristicNames(ArrayList<String> heuristicNames) {
         this.heuristicNames = heuristicNames;
-        System.out.println("heuristic names = " + heuristicNames);
+        //System.out.println("heuristic names = " + heuristicNames);
     }
 
     // Reset method for new design evaluation and manipulation
     public void resetDesignGoals() {
         this.objectives = new ArrayList<>();
         this.constraints = new ArrayList<>();
-        this.heuristicNames = new ArrayList<>();
+        this.heuristics = new ArrayList<>();
+        this.currentDesign = null;
         this.newDesign = new int[this.problem.getNumberOfVariables()];
     }
 
@@ -224,8 +229,8 @@ public class MetamaterialDesignOperations {
             currentSolution.setVariable(i, var);
         }
         this.currentDesign = new TrussRepeatableArchitecture(currentSolution, this.sideNodeNumber, this.numberOfHeuristicObjectives, this.numberOfHeuristicConstraints);
-        System.out.println("");
-        System.out.println("Current design = " + design);
+        //System.out.println("");
+        //System.out.println("Current design = " + design);
     }
 
     public ArrayList<Double> evaluate() {
@@ -256,39 +261,58 @@ public class MetamaterialDesignOperations {
         this.constraints = currentConstraints;
         this.heuristics = currentHeuristics;
 
-        System.out.println("Design evaluation complete.");
-        System.out.println("Objectives = " + currentObjectives);
-        System.out.println("Constraints = " + currentConstraints);
-        System.out.println("Heuristics = " + currentHeuristics);
-        System.out.println("");
+        //System.out.println("Design evaluation complete.");
+        //System.out.println("Objectives = " + currentObjectives);
+        //System.out.println("Constraints = " + currentConstraints);
+        //System.out.println("Heuristics = " + currentHeuristics);
+        //System.out.println("");
 
         return designMetrics;
     }
 
     public void setAction(int action) {
         this.action = action;
-        System.out.println("Action = " + Integer.toString(action));
+        //System.out.println("Action = " + Integer.toString(action));
     }
 
     public void operate() {
         boolean[] newBooleanDesign;
-        if (action < (2*this.currentDesign.getNumberOfVariables() + 1)) { // Simple adding/removing of members or no change
-            newBooleanDesign = this.currentDesign.getBooleanDesignArray(this.currentDesign); // getBooleanDesignArray must be a public method in the class
+        ////// NEW ACTION SPACE: n_actions = n_states + n_heurs
+        newBooleanDesign = this.currentDesign.getBooleanDesignArray(this.currentDesign); // getBooleanDesignArray must be a public method in the class
 
-            if (action < this.currentDesign.getNumberOfVariables()) {
-                if (!newBooleanDesign[action]) { // Add member if its not present in design
-                    newBooleanDesign[action] = true;
-                }
-            } else if (action > this.currentDesign.getNumberOfVariables()) { // Remove member if its present in design
-                if (newBooleanDesign[action - (this.currentDesign.getNumberOfVariables() + 1)]) {
-                    newBooleanDesign[action - (this.currentDesign.getNumberOfVariables() + 1)] = false;
-                }
-            } // if action == this.currentDesign.getNumberOfVariables() -> keep the same design
+        if (action < this.currentDesign.getNumberOfVariables()) { // Simple bit-flipping of design decisions
+            boolean currentDecision = newBooleanDesign[action];
+            newBooleanDesign[action] = !currentDecision;
         } else { // heuristic actions
-            Variation selectedHeuristicOperator = this.heuristicOperators.get(action - ((2*this.problem.getNumberOfVariables()) + 1));
+            Variation selectedHeuristicOperator = this.heuristicOperators.get(action - this.problem.getNumberOfVariables());
+            //System.out.println("Action = " + action + ", Heuristic Operator  = " + ((CompoundVariation) selectedHeuristicOperator).getName());
             Solution newSolution = selectedHeuristicOperator.evolve(new Solution[]{this.currentDesign})[0];
             newBooleanDesign = this.currentDesign.getBooleanDesignArray(newSolution);
         }
+
+        ////// OLD ACTION SPACE: n_actions = 2*n_states + n_heurs
+        //if (action < (2*this.currentDesign.getNumberOfVariables())) { // Simple adding/removing of members
+        //    newBooleanDesign = this.currentDesign.getBooleanDesignArray(this.currentDesign); // getBooleanDesignArray must be a public method in the class
+        //
+        //    if (action < this.currentDesign.getNumberOfVariables()) {
+        //        if (!newBooleanDesign[action]) { // Add member if its not present in design
+        //            newBooleanDesign[action] = true;
+        //        }
+        //    } else { // Remove member if its present in design
+        //        if (newBooleanDesign[action - (this.currentDesign.getNumberOfVariables())]) {
+        //            newBooleanDesign[action - (this.currentDesign.getNumberOfVariables())] = false;
+        //        }
+        //    }
+        //    //else if (action > this.currentDesign.getNumberOfVariables()) { // Remove member if its present in design
+        //        //if (newBooleanDesign[action - (this.currentDesign.getNumberOfVariables() + 1)]) {
+        //            //newBooleanDesign[action - (this.currentDesign.getNumberOfVariables() + 1)] = false;
+        //        //}
+        //    //}
+        //} else { // heuristic actions
+        //    Variation selectedHeuristicOperator = this.heuristicOperators.get(action - ((2*this.problem.getNumberOfVariables()) + 1));
+        //    Solution newSolution = selectedHeuristicOperator.evolve(new Solution[]{this.currentDesign})[0];
+        //    newBooleanDesign = this.currentDesign.getBooleanDesignArray(newSolution);
+        //}
 
         int[] newDesign = new int[newBooleanDesign.length];
         for (int i = 0; i < newBooleanDesign.length; i++) {
@@ -300,8 +324,8 @@ public class MetamaterialDesignOperations {
         }
 
         this.newDesign = newDesign;
-        System.out.println("Operation complete. New design = " + Arrays.toString(newDesign));
-        System.out.println("");
+        //System.out.println("Operation complete. New design = " + Arrays.toString(newDesign));
+        //System.out.println("");
     }
 
     // Retrieval Methods (run after operate() and evaluate())

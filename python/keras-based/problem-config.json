@@ -1,0 +1,21 @@
+{
+    "Solve artery problem": false,
+
+    "Model selection": 1,
+
+    "Member radius in m": 250e-6,
+    "Lattice side element length in m": 10e-3,
+    "Young's Modulus in Pa": 1.8162e6,
+    "Lattice number of side nodes": 3,
+    "NucFac": 3,
+
+    "Objective names": ["TrueObjective1","TrueObjective2"],
+    "Heuristic names": ["PartialCollapsibilityViolation","NodalPropertiesViolation","OrientationViolation","IntersectionViolation"],
+    "Heuristic abbreviations": ["p","n","o","i"],
+    "Heuristics used": [false, false, false, false],
+
+    "Constraint names": ["ConnectivityViolation","StiffnessRatioViolation"],
+    "Target stiffness ratio": 1,
+        
+    "Render steps": false
+}

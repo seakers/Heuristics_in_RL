@@ -85,13 +85,13 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Gradle.Heuristics in RL [clean]">
-    <configuration name="GatewayBinaryTestMainStart" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="seakers.gatewaytest.GatewayBinaryTestMainStart" />
+  <component name="RunManager" selected="Application.GatewayMainClass">
+    <configuration name="GatewayMainClass" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="seakers.GatewayMainClass" />
       <module name="heuristicsinrl.main" />
       <extension name="coverage">
         <pattern>
-          <option name="PATTERN" value="seakers.gatewaytest.*" />
+          <option name="PATTERN" value="seakers.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -99,8 +99,8 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="GatewayMainClass" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="seakers.GatewayMainClass" />
+    <configuration name="MOEARun" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="seakers.MOEARun" />
       <module name="heuristicsinrl.main" />
       <extension name="coverage">
         <pattern>
@@ -171,11 +171,11 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Application.MOEARun" />
         <item itemvalue="Gradle.Heuristics in RL [build]" />
         <item itemvalue="Gradle.Heuristics in RL [clean]" />
         <item itemvalue="Application.GatewayMainClass" />
         <item itemvalue="Gradle.Heuristics in RL [assemble]" />
-        <item itemvalue="Application.GatewayBinaryTestMainStart" />
       </list>
     </recent_temporary>
   </component>
@@ -204,5 +204,16 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>jar://$MAVEN_REPOSITORY$/seakers/Truss_AOS/1.0-SNAPSHOT/Truss_AOS-1.0-SNAPSHOT.jar!/seakers/trussaos/problems/ConstantRadiusTrussProblem2.class</url>
+          <line>193</line>
+          <option name="timeStamp" value="23" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

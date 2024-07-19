@@ -5,42 +5,39 @@ Support class for the metamaterial design problems with support methods includin
 @author: roshan94
 """
 import numpy as np
-from py4j.java_gateway import JavaGateway
-from py4j.java_gateway import GatewayParameters
+import copy
 
 class MetamaterialSupport:
-    def __init__(self, sel, sidenum, rad, E, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used):
+    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used):
 
         # Define class parameters
         self.side_elem_length = sel
         self.side_node_number = sidenum
         self.radius = rad
-        self.Youngs_modulus = E
+        self.Youngs_modulus = E_mod
         self.target_stiffrat = c_target
         self.heurs_used = heurs_used
         self.nuc_fac = nuc_fac
 
-        self.save_path = save_path
         self.obj_names = obj_names
         self.constr_names = constr_names
         self.heur_names = heur_names
 
-        self.current_PF_objs = {}
-        self.current_PF_constrs = {}
+        self.current_PF_objs = []
+        self.current_PF_constrs = []
 
-        self.step_counter = 0
+        self.current_PF_cds = [] # Crowing distances
 
-        # Access java gateway and pass parameters to operations class instance
-        self.gateway = JavaGateway(gateway_parameters=GatewayParameters(auto_convert=True))
+        self.current_design_hashset = set()
 
         # Get operations instance (the class instance will be different depending on problem, artery or equal stiffness)
-        self.operations_instance = self.gateway.entry_point.getOperationsInstance()
+        self.operations_instance = operations_instance
 
         self.operations_instance.setSideElementLength(sel) 
         self.operations_instance.setSideNodeNumber(float(sidenum)) 
         self.operations_instance.setRadius(rad) 
-        self.operations_instance.setYoungsModulus(E) 
-        self.operations_instance.setTargetStiffnessRatio(c_target) 
+        self.operations_instance.setYoungsModulus(E_mod) 
+        self.operations_instance.setTargetStiffnessRatio(float(c_target)) 
         self.operations_instance.setNucFac(float(nuc_fac))
 
         self.operations_instance.setArteryProblem(artery_prob)
@@ -59,8 +56,10 @@ class MetamaterialSupport:
     def dominates(self, objectives, constraints, current_PF_objectives, current_PF_constraints):
         # Assuming both objectives must be minimized
         dominates = False
+        non_dominating = False
 
         domination_counter = 0
+        non_domination_counter = 0
         obj_num = len(objectives)
 
         # Compute aggregate constraint violation
@@ -84,15 +83,38 @@ class MetamaterialSupport:
                         dominate[k] = -1
                 if -1 not in dominate and 1 in dominate:
                     domination_counter += 1
+                elif -1 in dominate and 1 in dominate:
+                    non_domination_counter += 1
 
         if domination_counter == 0:
             dominates = True
+        
+        if non_domination_counter == len(current_PF_objectives):
+            non_dominating = True
 
-        return dominates
+        return dominates, non_dominating
+    
+    ## Internal method only to check non-dominance (incorporated into dominates method)
+    def is_non_dominating(self, objs_current, constrs_current, objs_last, constrs_last):
+
+        is_non_dominating = False
+
+        if np.mean(constrs_current) == np.mean(constrs_last):
+            dominate = [0] * len(objs_current)
+            for k in range(len(objs_current)):
+                if objs_current[k] > objs_last[k]:
+                    dominate[k] = 1
+                elif objs_current[k] < objs_last[k]:
+                    dominate[k] = -1
+            
+            if -1 in dominate and 1 in dominate:
+                is_non_dominating = True
+
+        return is_non_dominating
     
     ## Method to obtain the nodal position array from sidenum and sel
     def get_nodal_position_array(self):
-        nodal_position_array = np.zeros((self.side_node_number, self.side_node_number))
+        nodal_position_array = np.zeros((self.side_node_number**2, 2))
 
         for i in range(nodal_position_array.shape[0]):
             nodal_position_array[i][0] = ((np.floor(i/self.side_node_number))/(self.side_node_number - 1)) * self.side_elem_length
@@ -124,6 +146,7 @@ class MetamaterialSupport:
         # Find action members by comparing the members the new CA with the old CA (unique members are action members)
         # More than one action member is possible if the added/removed member is an edge member
         no_member_change = True
+        member_addition = True
         if new_CA.shape[0] > current_CA.shape[0]: # member addition
             larger_CA = new_CA
             smaller_CA = current_CA
@@ -132,6 +155,7 @@ class MetamaterialSupport:
             larger_CA = current_CA
             smaller_CA = new_CA
             no_member_change = False
+            member_addition = False
 
         if not no_member_change:
             for member in larger_CA:
@@ -143,31 +167,229 @@ class MetamaterialSupport:
                 if not member_present:
                     action_members.append(member)
 
-        return action_members
+        return action_members, member_addition
 
     ## Method to modify state based on action
     def modify_by_action(self, state, action):
 
         # Pass state and action to java operator class
-        self.operations_instance.setCurrentDesign(state.tolist())
-        self.operations_instance.setAction(action.tolist())
+        try:
+            self.operations_instance.setCurrentDesign(state.tolist())
+            self.operations_instance.setAction(np.int64(action).tolist())
 
-        # Take action and obtain new state
-        self.operations_instance.operate()
-        new_state = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
+            # Take action and obtain new state
+            self.operations_instance.operate()
+            new_state = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
+        except:
+            current_state = state
+            current_action = action
+            print("Current state: " + str(current_state))
+            print("Current action: " + str(current_action))
+            print("Modify by action exception")
 
         return new_state
-    
-    ## Method to update step number
-    def update_step_number(self):
 
-        self.step_counter += 1
+    ## Method to change binary design array to bitstring to save to the hashset
+    def get_bitstring(self, design_array):
+        des_str = ''
+        for dec in design_array:
+            des_str += str(dec)
+        return des_str
 
     ## Method to compute reward based on new state (assuming deterministic action outcome from previous state)
-    def compute_reward(self, state):
+    def compute_reward(self, prev_state, state, step):
+        r = 0
 
-        # Pass new state to evaluator and evaluate
-        self.operations_instance.setCurrentDesign(state.tolist())
+        # Assign rewards only if a new design is created
+        new_des_bitstring = self.get_bitstring(state)
+        if not new_des_bitstring in self.current_design_hashset:
+            # Pass new state to evaluator and evaluate
+            objs, constrs, heurs, true_objs = self.evaluate_design(state)
+
+            if len(self.current_PF_objs) == 0: # Add evaluated objectives and constraints if Pareto Front is empty
+                self.current_PF_objs.append(objs)
+                self.current_PF_constrs.append(constrs)
+
+            self.current_design_hashset.add(new_des_bitstring)
+
+            objs_PF = self.current_PF_objs
+            constrs_PF = self.current_PF_constrs
+
+            # Check if current state is present in the Pareto Front
+            objs_present = np.any([np.array_equal(objs, objs_test) for objs_test in objs_PF])
+            constrs_present = np.any([np.array_equal(constrs, constrs_test) for constrs_test in constrs_PF])
+
+            is_PF = False
+            r_cd = 0
+            dominates, non_dominating = self.dominates(objs, constrs, objs_PF, constrs_PF)
+            if (dominates or non_dominating) and (not (objs_present and constrs_present)): # Add evaluated objectives and constraints if current design dominates the Pareto Front designs
+                
+                ### Compute crowding distance based reward before adding current design objectives and constraints to current Pareto Front (only if new design is non-dominating)
+                if non_dominating:
+                    ## Approach 1 - Reward = decrease in average crowding distance 
+                    #current_PF_cds = self.compute_crowding_distances(self.current_PF_objs)
+                    #PF_objs_with_design = copy.deepcopy(self.current_PF_objs)
+                    #PF_objs_with_design.append(objs)
+                    #PF_with_design_cds = self.compute_crowding_distances(PF_objs_with_design)
+
+                    #PF_with_design_cds_mask = np.ma.masked_invalid(PF_with_design_cds)
+                    #current_PF_cds_mask = np.ma.masked_invalid(current_PF_cds)
+                    #np.ma.set_fill_value(PF_with_design_cds_mask, 10000)
+                    #np.ma.set_fill_value(current_PF_cds_mask, 10000)
+
+                    #PF_with_design_cds_fixed = np.ma.fix_invalid(PF_with_design_cds_mask).data
+                    #current_PF_cds_fixed = np.ma.fix_invalid(current_PF_cds_mask).data
+
+                    #r_cd = (np.sum(current_PF_cds_fixed)/len(current_PF_cds)) - (np.sum(PF_with_design_cds_fixed)/len(PF_with_design_cds))
+
+                    ## Approach 2 - Reward = local crowding distance of new design
+                    if not objs_present: # To account for case where domination is due to constraint violation but objectives are the same
+                        r_cd = self.compute_design_crowding_distance(objs)
+
+                self.current_PF_objs.append(objs)
+                self.current_PF_constrs.append(constrs)
+
+                # Remove dominated designs
+                #objs_PF_copy = copy.deepcopy(self.current_PF_objs)
+                #constrs_PF_copy = copy.deepcopy(self.current_PF_constrs)
+                remove_inds = []
+                for count in range(len(self.current_PF_objs)):
+                    dominates, non_dominating = self.dominates(self.current_PF_objs[count], self.current_PF_constrs[count], self.current_PF_objs, self.current_PF_constrs)
+                    if not (dominates or non_dominating):
+                        #self.current_PF_objs.remove(count)
+                        #self.current_PF_constrs.remove(count)
+                        remove_inds.append(count)
+
+                PF_objs_array = np.array(self.current_PF_objs)
+                PF_constrs_array = np.array(self.current_PF_constrs)
+                
+                PF_objs_array = np.delete(PF_objs_array, remove_inds, axis=0)
+                PF_constrs_array = np.delete(PF_constrs_array, remove_inds, axis=0)
+                
+                #for index_val in remove_inds:
+                    #del self.current_PF_objs[index_val]
+                    #del self.current_PF_constrs[index_val]
+                
+                self.current_PF_objs = PF_objs_array.tolist()
+                self.current_PF_constrs = PF_constrs_array.tolist()
+
+                is_PF = True
+
+            # Evaluate previous state 
+            objs_prev, constrs_prev, heurs_prev, true_objs_prev = self.evaluate_design(prev_state)
+
+            #self.operations_instance.resetDesignGoals()
+            #self.operations_instance.setCurrentDesign(prev_state.tolist())
+            #self.operations_instance.evaluate()
+
+            # Obtain objectives and constraints
+            #objs_prev = list(self.operations_instance.getObjectives())
+            #constrs_prev = list(self.operations_instance.getConstraints())
+            #heurs_prev = list(self.operations_instance.getHeuristics())
+
+            #true_objs_prev = list(self.operations_instance.getTrueObjectives())
+
+            # Compute reward
+            #r = r_cd
+            #if np.any(constrs): # one or more constraints not satisfied (not equal to zero)
+                #r = -100
+            #else:
+                #if is_PF:
+                    #r = 10
+                #else:
+                    #r = 1
+
+            # Reward contribution by constraint violation
+            r_constr = (np.mean(constrs_prev) - np.mean(constrs))
+
+            # Reward contribution by offspring-parent dominance
+            r_dom = 0
+            dominates, non_dominating = self.dominates(objs, constrs, [objs_prev], [constrs_prev])
+            if dominates:
+                r_dom = 1
+            elif non_dominating:
+                r_dom = 0
+            else:
+                r_dom = -1
+
+            #r += r_dom
+            # Reward contribution by Pareto Front entry
+            r_PF = 0
+            if is_PF:
+                r_PF = 100
+
+            # Penalize reward based on time step
+            r = np.min([np.exp(r_cd + r_constr + r_dom), 50]) + r_PF
+            r /= (step+1)
+            
+            self.operations_instance.resetDesignGoals()
+
+        return r
+    
+    # Method to compute the crowding distance for each design in the objectives list
+    def compute_crowding_distances(self, objs_list):
+        current_cds = np.zeros((len(objs_list), len(objs_list[0])))
+
+        for i in range(len(objs_list[0])):
+            current_list_obj = np.array([x[i] for x in objs_list])
+
+            # Sort current objectives in descending order
+            ascend_inds = np.argsort(current_list_obj)
+            descend_inds = np.flip(ascend_inds)
+
+            current_list_obj_sorted = current_list_obj[descend_inds]
+            current_obj_max = np.max(current_list_obj_sorted)
+            current_obj_min = np.min(current_list_obj_sorted)
+
+            current_obj_cds = np.zeros((len(current_list_obj)))
+            current_obj_cds[0] = np.inf
+            current_obj_cds[-1] = np.inf
+            current_cds[descend_inds[0],i] = current_obj_cds[0] # setting CD for max objective design
+            current_cds[descend_inds[-1],i] = current_obj_cds[-1] # setting CD for min objective design
+
+            if len(current_obj_cds) > 2:
+                for j in range(1,len(current_list_obj)-1):
+                    current_obj_cds[j] = (current_list_obj_sorted[j-1] - current_list_obj_sorted[j+1])/(current_obj_max - current_obj_min)
+                    current_cds[descend_inds[j],i] = current_obj_cds[j]
+
+        current_cds_aggr = np.sum(current_cds, axis=1)
+
+        return current_cds_aggr
+    
+    # Method to compute the crowding distance for new Pareto design
+    def compute_design_crowding_distance(self, objs_new):
+        n_objs = len(objs_new)
+        new_state_cds = np.zeros((n_objs))
+
+        # Compute crowding distances for each objective
+        objs_PF = copy.deepcopy(self.current_PF_objs)
+        objs_PF.append(objs_new)
+
+        for i in range(n_objs):
+            objs_current = np.array([x[i] for x in objs_PF])
+
+            # Sort current objectives in descending order
+            ascend_inds = np.argsort(objs_current)
+            descend_inds = np.flip(ascend_inds)
+
+            objs_sorted = objs_current[descend_inds]
+
+            # Find where new objective is present and compute crowding distance accordingly
+            new_obj_ind = np.where(objs_sorted == objs_new[i])[0][0]
+
+            obj_max = np.max(objs_current)
+            obj_min = np.min(objs_current)
+
+            if (new_obj_ind == 0) or (new_obj_ind == len(objs_current)-1): # New design is outside the current Pareto Front
+                new_state_cds[i] = 1
+            else:
+                new_state_cds[i] = (objs_sorted[new_obj_ind-1] - objs_sorted[new_obj_ind+1])/(obj_max - obj_min)
+
+        return np.sum(new_state_cds)
+        
+    def evaluate_design(self, design):
+        self.operations_instance.resetDesignGoals()
+        self.operations_instance.setCurrentDesign(design.tolist())
         self.operations_instance.evaluate()
 
         # Obtain objectives and constraints
@@ -177,27 +399,4 @@ class MetamaterialSupport:
 
         true_objs = list(self.operations_instance.getTrueObjectives())
 
-        if len(self.current_PF_objs) == 0: # Add evaluated objectives and constraints if Pareto Front is empty
-            self.current_PF_objs[self.step_counter] = objs
-            self.current_PF_constrs[self.step_counter] = constrs
-
-        objs_PF = list(self.current_PF_objs.values())
-        constrs_PF = list(self.current_PF_constrs.values())
-
-        is_PF = False
-        if self.dominates(objs, constrs, objs_PF, constrs_PF): # Add evaluated objectives and constraints if current design dominates the Pareto Front designs
-            self.current_PF_objs[self.step_counter] = objs
-            self.current_PF_constrs[self.step_counter] = constrs
-            is_PF = True
-
-        # Compute reward
-        r = 0
-        if np.any(constrs): # one or more constraints not satisfied (not equal to zero)
-            r = -100
-        else:
-            if is_PF:
-                r = 10
-            else:
-                r = 1
-
-        return r
+        return objs, constrs, heurs, true_objs

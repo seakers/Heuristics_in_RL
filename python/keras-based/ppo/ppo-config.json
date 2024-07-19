@@ -1,0 +1,47 @@
+{
+    "Number of runs": 1, 
+    
+    "Value discount (gamma)": 0.99, 
+    "Number of training episodes": 500, 
+    "Maximum steps in training episode": 100000, 
+    "Maximum steps in evaluation episode": 200,
+    "Number of evaluation episodes": 5,
+    
+    "Episode interval for evaluation": 10, 
+    "Initial number of stored trajectories": 100,
+    "Number of steps in a collected trajectory": 300,
+    "Number of trajectories used for training per episode": 10,
+    "Number of steps in a minibatch": 200,
+    
+    "Compute periodic returns": true,
+    "Buffer used": true,
+    "Replay buffer capacity": 10000,
+    "Normalize advantages": false,
+    "Discrete actions": true,
+    "Advantage discount (lambda)": 0.9,
+    
+    "Actor network layer units": [200, 100, 200],
+    "Actor network dropout probabilities": [0.10, 0.05, 0.10],
+    "Critic network layer units": [100, 60],
+    "Critic network dropout probabilities": [0.10, 0.05],
+    
+    "Use clipping loss": true,
+    "Clipping ratio threshold": 0.2,
+    "Use Adaptive KL penalty loss": false,
+    "KL target": 0.01,
+    "Adaptive KL coefficient (beta)": 1,
+    "Use entropy loss bonus": true,
+    "Entropy coefficient": 0.5,
+    "Use early stopping for actor training": true,
+    
+    "Number of actor training iterations": 50,
+    "Number of critic training iterations": 50,
+    
+    "Initial actor training learning rate": 1e-4,
+    "Initial critic training learning_rate": 5e-5,
+    "Learning rate decay rate": 0.95,
+    "RMSprop optimizer rho": 0.9,
+    "RMSprop optimizer momentum": 0.1,
+    
+    "Savepath": "C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\python\\keras-based\\results\\ppo\\"
+}

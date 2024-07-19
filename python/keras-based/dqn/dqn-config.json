@@ -1,0 +1,35 @@
+{
+    "Number of runs": 1,
+    
+    "Compute periodic returns": true,
+    "Value discount (gamma)": 0.99,
+    "Epsilon greedy probability theshold (epsilon)": 1.0,
+    "Minimum epsilon": 0.1,
+    "Maximum epsilon": 1.0,
+    "Training batch_size": 16,
+    "Number of unique designs per episode": 2000,
+    "Number of training episodes": 10,
+
+    "Maximum steps in evaluation episode": 50,
+    "Maximum number of evaluation of episodes": 3,
+
+    "Episode interval for evaluation": 2,
+
+    "Initial number of trajectories to populate buffer": 50,
+    "Number of steps in a trajectory": 8,
+    "Number of steps in a training episode": 32,
+    "Replay buffer capacity (transitions)": 10000, 
+
+    "Optimizer initial learning rate": 1e-3,
+    "Learning rate decay rate": 0.95,
+    "RMSprop optimizer rho": 0.9,
+    "RMSprop optimizer momentum": 0.1,
+
+    "DQN layer units": [100, 60],
+    "DQN layer dropout probabilities": [0.10, 0.05],
+
+    "Target Q-network used": true,
+    "Number of steps to update target Q-network": 5,
+
+    "Savepath": "C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\python\\keras-based\\results\\dqn\\"
+}

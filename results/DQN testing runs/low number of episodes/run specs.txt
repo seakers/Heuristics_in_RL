@@ -1,0 +1,30 @@
+num_unique_des_episode = 1000
+
+use_replay = True
+compute_periodic_returns = True
+
+initial_collect_steps = 750 # number of steps in the driver to populate replay buffer before beginning training
+episode_collect_steps = 8 # number of steps in the driver to populate replay buffer during training
+replay_buffer_capacity = 10000 
+
+fc_layer_params = (200, 120)
+dropout_layer_params = (0.10, 0.05)
+
+batch_size = 16 # batch size for replay buffer storage and training
+learning_rate = 1e-3  
+gamma = 0.99
+prob_eps_greedy = 0.05
+
+num_eval_episodes = 3  
+num_train_epsiodes = 10
+
+use_target_q_net = True
+target_update_steps = 5 # number of steps to update target Q-network (steps here is steps as computed to train agent)
+
+eval_interval = 4 
+
+n_step_update = 16 # number of transition steps in a trajectory used to train the agent
+
+max_steps = np.Inf # no termination in training environment
+
+max_steps_eval = 50
