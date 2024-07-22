@@ -97,10 +97,9 @@ class Buffer:
         return self.num_trajectories
 
     # Method to get stats on the chosen trajectory (include last observation to compute delta for the last time step)
-    def get_trajectory_slice(self, trajectory_index, start_index=0, end_index=1):
-        return self.observation_buffer[trajectory_index, start_index:(end_index+1), :], \
-            self.action_buffer[trajectory_index, start_index:end_index, :], \
-            self.reward_buffer[trajectory_index, start_index:end_index], \
-            self.done_buffer[trajectory_index, start_index:end_index], \
-            self.policy_logits_buffer[trajectory_index, start_index:end_index, :]
-    
+    def get_trajectory(self, trajectory_index):
+        return self.observation_buffer[trajectory_index, :, :], \
+            self.action_buffer[trajectory_index, :, :], \
+            self.reward_buffer[trajectory_index, :], \
+            self.done_buffer[trajectory_index, :], \
+            self.policy_logits_buffer[trajectory_index, :, :]

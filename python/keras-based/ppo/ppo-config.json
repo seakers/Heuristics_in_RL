@@ -8,12 +8,13 @@
     "Number of evaluation episodes": 5,
     
     "Episode interval for evaluation": 10, 
-    "Initial number of stored trajectories": 100,
+    "Initial number of stored trajectories": 10,
     "Number of steps in a collected trajectory": 300,
     "Number of trajectories used for training per episode": 10,
     "Number of steps in a minibatch": 200,
     
     "Compute periodic returns": true,
+    "Continuous minibatch": false,
     "Buffer used": true,
     "Replay buffer capacity": 10000,
     "Normalize advantages": false,
