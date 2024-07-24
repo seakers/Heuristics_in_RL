@@ -149,7 +149,7 @@ def compute_avg_return(environment, q_net, num_steps=100, num_episodes=10):
             action = tf.argmax(action_vals[0]).numpy()
 
             next_obs, reward, done, _ = environment.step(action)
-            episode_return += reward
+            episode_return += (gamma**eval_step)*reward
 
             if done:
                 break

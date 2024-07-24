@@ -66,6 +66,11 @@ episode_training_trajs = data_ppo["Number of trajectories used for training per 
 minibatch_steps = data_ppo["Number of steps in a minibatch"]
 replay_buffer_capacity = data_ppo["Replay buffer capacity"] # maximum number of trajectories that can be stored in the buffer
 
+
+if minibatch_steps > trajectory_collect_steps:
+    print("Number of steps in a minibatch is greater than the number of collected steps, reduce the minibatch steps")
+    sys.exit(0)
+
 ## NOTE: Total number of designs used for training in each run = episode_training_trajs*minibatch_steps*max_train_episodes
 
 advantage_norm = data_ppo["Normalize advantages"] # whether to normalize advantages for training
@@ -178,7 +183,7 @@ def compute_avg_return(environment, actor, num_steps=100, num_episodes=10):
             action = tf.argmax(tf.squeeze(action_probs)).numpy()
 
             next_obs, reward, done, _ = environment.step(action)
-            episode_return += reward
+            episode_return += (gamma**eval_step)*reward
 
             if done:
                 break
@@ -223,7 +228,7 @@ seed = 10
 
 ## Generate trajectories for training
 def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, collect_steps, actor):
-    traj_states = np.zeros((n_trajs, collect_steps, num_states))
+    traj_states = np.zeros((n_trajs, collect_steps, num_states), dtype=np.int32) # The explicit datatype is for py4j compatibility with the Java methods
     traj_actions = np.zeros((n_trajs, collect_steps, num_actions))
     traj_rewards = np.zeros((n_trajs, collect_steps))
     traj_dones = np.zeros((n_trajs, collect_steps))
@@ -278,7 +283,7 @@ def store_into_buffer(buffer, n_trajs, collect_steps, trajectory_states, traject
         buffer.store_to_buffer()
 
 ## Method to sample action from actor network for the current observation
-#@tf.function
+@tf.function
 def sample_action(actor, observation):
     observation_tensor = tf.convert_to_tensor(observation)
     observation_tensor = tf.expand_dims(observation_tensor, axis=0)
@@ -330,13 +335,13 @@ def compute_advantages_and_returns(indices, full_rewards, full_values, ad_norm):
     return full_returns[indices], full_advantages[indices]
 
 ## Train the policy network (actor) by maximizing PPO objective (possibly including clip and/or adaptive KL penalty coefficients and entropy regularization)
-#@tf.function
-def train_actor(actor, policy_optimizer, observation_samples, action_samples, logits_samples, advantage_samples, beta_val, target_kl, entropy_coeff):
+@tf.function
+def train_actor(observation_samples, action_samples, logits_samples, advantage_samples, beta_val, target_kl, entropy_coeff):
     action_samples_array = tf.squeeze(action_samples).numpy()
 
     with tf.GradientTape() as tape:
 
-        actor_predictions = actor(observation_samples, training=False)
+        actor_predictions = actor_net(observation_samples, training=False)
         probabilities_old = tf.nn.softmax(logits_samples)
         probabilities_new = tf.nn.softmax(actor_predictions)
         
@@ -370,7 +375,7 @@ def train_actor(actor, policy_optimizer, observation_samples, action_samples, lo
 
         policy_loss = policy_loss_clipping + adaptive_kl_penalty + entropy_coeff*entropy
     
-    policy_grads = tape.gradient(policy_loss, actor.trainable_variables)
+    policy_grads = tape.gradient(policy_loss, actor_net.trainable_variables)
     # Check if there are any NaNs in the gradients tensor
     nan_grads = False
     for layer in range(len(policy_grads)):
@@ -382,17 +387,17 @@ def train_actor(actor, policy_optimizer, observation_samples, action_samples, lo
         print('NaN actor gradients')
         
     print('Policy optimizer learning rate: ' + str(policy_optimizer.learning_rate.numpy()))
-    policy_optimizer.apply_gradients(zip(policy_grads, actor.trainable_variables))
+    policy_optimizer.apply_gradients(zip(policy_grads, actor_net.trainable_variables))
 
     return policy_loss, kl_mean, beta_val
 
 ## Train the value network (critic) using MSE
-#@tf.function
-def train_critic(critic, value_optimizer, observation_samples, return_samples):
+@tf.function
+def train_critic(observation_samples, return_samples):
     with tf.GradientTape() as tape:
-        critic_predictions = critic(observation_samples, training=False)
+        critic_predictions = critic_net(observation_samples, training=False)
         value_loss = tf.reduce_mean(tf.math.pow(tf.math.subtract(return_samples, critic_predictions), 2))
-    value_grads = tape.gradient(value_loss, critic.trainable_variables)
+    value_grads = tape.gradient(value_loss, critic_net.trainable_variables)
     # Check if there are any NaNs in the gradients tensor
     nan_grads = False
     for layer in range(len(value_grads)):
@@ -404,19 +409,9 @@ def train_critic(critic, value_optimizer, observation_samples, return_samples):
         print('NaN critic gradients')
 
     print('Value optimizer learning rate: ' + str(value_optimizer.learning_rate.numpy()))
-    value_optimizer.apply_gradients(zip(value_grads, critic.trainable_variables))
+    value_optimizer.apply_gradients(zip(value_grads, critic_net.trainable_variables))
 
     return value_loss
-
-## Initialize actor and critic
-actor_net = create_actor(num_states=n_states, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
-critic_net = create_critic(num_states=n_states, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
-
-## Initialize the optimizers
-policy_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_actor_learning_rate, decay_steps=decay_steps, decay_rate=decay_rate)
-value_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_critic_learning_rate, decay_steps=decay_steps, decay_rate=decay_rate)
-policy_optimizer = keras.optimizers.RMSprop(learning_rate=policy_lr_schedule, rho=rho, momentum=momentum)
-value_optimizer = keras.optimizers.RMSprop(learning_rate=value_lr_schedule, rho=rho, momentum=momentum)
 
 ## Operation
 if compute_periodic_returns:
@@ -452,6 +447,16 @@ for run_num in range(n_runs):
         
     file_name += str(run_num) + ".csv"
 
+    ## Initialize actor and critic
+    actor_net = create_actor(num_states=n_states, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
+    critic_net = create_critic(num_states=n_states, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
+
+    ## Initialize the optimizers
+    policy_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_actor_learning_rate, decay_steps=decay_steps, decay_rate=decay_rate)
+    value_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_critic_learning_rate, decay_steps=decay_steps, decay_rate=decay_rate)
+    policy_optimizer = keras.optimizers.RMSprop(learning_rate=policy_lr_schedule, rho=rho, momentum=momentum)
+    value_optimizer = keras.optimizers.RMSprop(learning_rate=value_lr_schedule, rho=rho, momentum=momentum)
+
     # Initialize result saver
     result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names)
 
@@ -468,10 +473,10 @@ for run_num in range(n_runs):
     # Initialize the buffer
     if use_buffer:
         print('Storing initial trajectories into buffer')
-        buffer = Buffer(discrete_actions=discrete_actions, max_buffer_size=replay_buffer_capacity, max_traj_steps=trajectory_collect_steps, num_actions=n_actions, observation_dimensions=n_states, action_dimensions=n_action_vals)
+        buffer = Buffer(discrete_actions=discrete_actions, max_buffer_size=replay_buffer_capacity, max_traj_steps=trajectory_collect_steps+1, num_actions=n_actions, observation_dimensions=n_states, action_dimensions=n_action_vals)
 
         # Generate the initial set of trajectories to add to buffer
-        init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps, actor=actor_net)
+        init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net)
         store_into_buffer(buffer=buffer, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps, trajectory_states=init_trajectory_states, trajectory_actions=init_trajectory_actions, trajectory_rewards=init_trajectory_rewards, trajectory_dones=init_trajectory_dones, trajectory_policy_logits=init_trajectory_policy_logits)
 
     ## Start Training
@@ -530,7 +535,7 @@ for run_num in range(n_runs):
             # Generate a trajectory to add to the buffer
             if use_buffer:
                 print('Add a trajectory to the buffer')
-                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps, actor=actor_net)
+                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
                 store_into_buffer(buffer=buffer, n_trajs=1, collect_steps=trajectory_collect_steps, trajectory_states=trajectory_states, trajectory_actions=trajectory_actions, trajectory_rewards=trajectory_rewards, trajectory_dones=trajectory_dones, trajectory_policy_logits=trajectory_policy_logits)
 
             # Generate/sample trajectories to populate training minibatch
@@ -576,18 +581,17 @@ for run_num in range(n_runs):
                     traj_returns, traj_advantages = compute_advantages_and_returns(indices_array, traj_full_rs, traj_full_vals_array, advantage_norm)
 
                     # Add to minibatch
-                    if use_continuous_minibatch:
-                        train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_obs
-                        train_minibatch_actions[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_acts
-                        train_minibatch_rewards[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_rs
-                        train_minibatch_values[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_vals_array
-                        train_minibatch_returns[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_returns
-                        train_minibatch_advantages[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_advantages
-                        train_minibatch_logits[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_logits
+                    train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_obs
+                    train_minibatch_actions[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_acts
+                    train_minibatch_rewards[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_rs
+                    train_minibatch_values[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_vals_array
+                    train_minibatch_returns[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_returns
+                    train_minibatch_advantages[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_advantages
+                    train_minibatch_logits[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_logits    
                 
                 else:
                     # Generate trajectory
-                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps, actor=actor_net)
+                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
 
                     # Extract slice from the trajectory (Assumption: continuous trajectory slice is considered instead of random steps in the trajectory)
                     if use_continuous_minibatch:
@@ -599,7 +603,7 @@ for run_num in range(n_runs):
 
                     traj_slice_states = trajectory_states[0, indices_array, :]
                     traj_slice_actions = trajectory_actions[0, indices_array, :]
-                    traj_slice_rewards = trajectory_rewards[0, indices_array, :]
+                    traj_slice_rewards = trajectory_rewards[0, indices_array]
                     traj_slice_policy_logits = trajectory_policy_logits[0, indices_array, :]
 
                     # Log trajectory into the result logger
@@ -609,8 +613,8 @@ for run_num in range(n_runs):
                         overall_step_counter += 1
 
                     # Obtain value estimation from critic for the trajectory observations
-                    trajectory_states_exp = tf.expand_dims(trajectory_states, axis=0)
-                    trajectory_vals = critic_net(trajectory_states_exp, training=False)
+                    #trajectory_states_exp = tf.expand_dims(trajectory_states, axis=0)
+                    trajectory_vals = critic_net(trajectory_states, training=False)
                     trajectory_vals_array = tf.squeeze(trajectory_vals).numpy()
                     traj_slice_vals = trajectory_vals_array[indices_array]
 
@@ -619,7 +623,7 @@ for run_num in range(n_runs):
                     #traj_slice_val_end = tf.squeeze(critic_net(traj_slice_end_state_expanded, training=False)).numpy()
 
                     # Compute advantages and returns using the rewards and value estimates
-                    traj_slice_returns, traj_slice_advantages = compute_advantages_and_returns(indices_array, trajectory_rewards, trajectory_vals_array, advantage_norm)
+                    traj_slice_returns, traj_slice_advantages = compute_advantages_and_returns(indices_array, trajectory_rewards[0,:], trajectory_vals_array, advantage_norm)
 
                     # Add to minibatch
                     train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_states
@@ -636,7 +640,7 @@ for run_num in range(n_runs):
                 if use_early_stopping:
                     training_end_step = 1
                 for _ in range(train_policy_iterations):
-                    actor_train_loss, mean_kl, beta = train_actor(actor=actor_net, policy_optimizer=policy_optimizer, observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, beta_val=beta, target_kl=kl_targ, entropy_coeff=ent_coeff)
+                    actor_train_loss, mean_kl, beta = train_actor(observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, beta_val=beta, target_kl=kl_targ, entropy_coeff=ent_coeff)
                     actor_losses_iterations.append(actor_train_loss.numpy())
                     print('Step: ' + str(actor_train_count) + ', actor loss: ' + str(actor_train_loss.numpy()))
                     actor_train_count += 1
@@ -653,7 +657,7 @@ for run_num in range(n_runs):
             print('Critic Training \n')
             with tqdm(total=train_value_iterations, desc='Critic training') as pbar_val:
                 for _ in range(train_value_iterations):
-                    critic_train_loss = train_critic(critic=critic_net, value_optimizer=value_optimizer, observation_samples=train_minibatch_states, return_samples=train_minibatch_returns)
+                    critic_train_loss = train_critic(observation_samples=train_minibatch_states, return_samples=train_minibatch_returns)
                     critic_losses_iterations.append(critic_train_loss.numpy())
                     print('Step: ' + str(critic_train_count) + ', actor loss: ' + str(critic_train_loss.numpy()))
                     critic_train_count += 1

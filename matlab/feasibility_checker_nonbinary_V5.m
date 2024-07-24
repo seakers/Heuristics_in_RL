@@ -26,9 +26,9 @@ function [feasibilityScore] = feasibility_checker_nonbinary_V5(NC,CA,sel,sidenum
             % Throw an error, given an intersection
             if intersect == true
                 feasibilityScore = feasibilityScore - 0.1;
-%                 if feasibilityScore < 0.1
-%                     return
-%                 end
+                if feasibilityScore < 0.1
+                    return
+                end
             end
         end
     end
@@ -61,9 +61,9 @@ function [feasibilityScore] = feasibility_checker_nonbinary_V5(NC,CA,sel,sidenum
                     % Check if the elements' y-coordinates overlap
                     if C(2) == A(2)
                         feasibilityScore = feasibilityScore - 0.1;
-%                         if feasibilityScore < 0.1
-%                             return
-%                         end
+                        if feasibilityScore < 0.1
+                            return
+                        end
                     end
                 % Check if the elements are vertical and their coordinates
                 % overlap
@@ -71,9 +71,9 @@ function [feasibilityScore] = feasibility_checker_nonbinary_V5(NC,CA,sel,sidenum
                     % Check if the elements' x-coordinates overlap
                     if C(1) == A(1)
                         feasibilityScore = feasibilityScore - 0.1;
-%                         if feasibilityScore < 0.1
-%                             return
-%                         end
+                        if feasibilityScore < 0.1
+                            return
+                        end
                     end
                 else
                     if k < q
@@ -89,14 +89,14 @@ function [feasibilityScore] = feasibility_checker_nonbinary_V5(NC,CA,sel,sidenum
                     if (t1 == t2)
                         if (t1 >= 0) && (t1 < 1)
                             feasibilityScore = feasibilityScore - 0.1;
-%                             if feasibilityScore < 0.1
-%                                 return
-%                             end
+                            if feasibilityScore < 0.1
+                                return
+                            end
                         elseif (t3 >= 0) && (t3 < 1)
                             feasibilityScore = feasibilityScore - 0.1;
-%                             if feasibilityScore < 0.1
-%                                 return
-%                             end
+                            if feasibilityScore < 0.1
+                                return
+                            end
                         end
                     end
                 end
@@ -183,9 +183,9 @@ function [feasibilityScore] = feasibility_checker_nonbinary_V5(NC,CA,sel,sidenum
     if flowbool ~= 1
         penalty = max(length(startunique),length(endunique));
         feasibilityScore = feasibilityScore - (0.1*penalty);
-%         if feasibilityScore < 0.1
-%             return
-%         end
+        if feasibilityScore < 0.1
+            return
+        end
     end
     
     % FOURTH CONSTRAINT: The design must have intercell connectivity
@@ -262,9 +262,9 @@ function [feasibilityScore] = feasibility_checker_nonbinary_V5(NC,CA,sel,sidenum
     % Score design unilaterally based on absence of contact points
     if contactbool ~= 1
         feasibilityScore = feasibilityScore - 0.5;
-%         if feasibilityScore < 0.1
-%             return
-%         end
+        if feasibilityScore < 0.1
+            return
+        end
     end
 end
 

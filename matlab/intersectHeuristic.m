@@ -22,9 +22,9 @@ function intersectScore = intersectHeuristic(NC,CA_des)
             % Throw an error, given an intersection
             if intersect == true
                 intersectScore = intersectScore - 0.05;
-                %if intersectScore < 0.05
-                    %return
-                %end
+                if intersectScore < 0.05
+                    return
+                end
             end
         end
     end
