@@ -52,8 +52,8 @@ n_runs = data_ppo["Number of runs"]
 gamma = data_ppo["Value discount (gamma)"] # discount factor
 max_train_episodes = data_ppo["Number of training episodes"] # number of training episodes
 
-max_steps = data_ppo["Maximum steps in training episode"] # no termination in training environment
-max_eval_steps = data_ppo["Maximum steps in evaluation episode"] # termination in evaluation environment
+max_steps = data_ppo["Maximum steps in training episode (for train environment termination)"] # no termination in training environment
+max_eval_steps = data_ppo["Maximum steps in evaluation episode (for evaluation environment termination)"] # termination in evaluation environment
 max_eval_episodes = data_ppo["Number of evaluation episodes"] # number of episodes per evaluation of the actor
 
 use_buffer = data_ppo["Buffer used"]
@@ -101,7 +101,8 @@ train_value_iterations = data_ppo["Number of critic training iterations"]
 initial_actor_learning_rate = data_ppo["Initial actor training learning rate"]
 initial_critic_learning_rate = data_ppo["Initial critic training learning_rate"]  
 decay_rate = data_ppo["Learning rate decay rate"]
-decay_steps = max_train_episodes*train_policy_iterations 
+decay_steps_actor = max_train_episodes*train_policy_iterations 
+decay_steps_critic = max_train_episodes*train_value_iterations 
 rho = data_ppo["RMSprop optimizer rho"]
 momentum = data_ppo["RMSprop optimizer momentum"]
 
@@ -283,7 +284,7 @@ def store_into_buffer(buffer, n_trajs, collect_steps, trajectory_states, traject
         buffer.store_to_buffer()
 
 ## Method to sample action from actor network for the current observation
-@tf.function
+#@tf.function
 def sample_action(actor, observation):
     observation_tensor = tf.convert_to_tensor(observation)
     observation_tensor = tf.expand_dims(observation_tensor, axis=0)
@@ -335,8 +336,8 @@ def compute_advantages_and_returns(indices, full_rewards, full_values, ad_norm):
     return full_returns[indices], full_advantages[indices]
 
 ## Train the policy network (actor) by maximizing PPO objective (possibly including clip and/or adaptive KL penalty coefficients and entropy regularization)
-@tf.function
-def train_actor(observation_samples, action_samples, logits_samples, advantage_samples, beta_val, target_kl, entropy_coeff):
+#@tf.function
+def train_actor(observation_samples, action_samples, logits_samples, advantage_samples, target_kl, entropy_coeff):
     action_samples_array = tf.squeeze(action_samples).numpy()
 
     with tf.GradientTape() as tape:
@@ -360,12 +361,12 @@ def train_actor(observation_samples, action_samples, logits_samples, advantage_s
         kl_divergence = tf.reduce_sum(tf.math.multiply(probabilities_old, tf.math.log(tf.math.divide(probabilities_old, probabilities_new))), axis=1)
         kl_mean = tf.reduce_mean(kl_divergence)
         if use_adaptive_kl_penalty:    
-            adaptive_kl_penalty = beta_val * kl_mean
+            adaptive_kl_penalty = beta * kl_mean
 
             if kl_mean < (target_kl/1.5):
-                beta_val = beta_val/2
+                beta = beta/2
             elif kl_mean > (target_kl * 1.5):
-                beta_val = beta_val * 2
+                beta = beta * 2
 
         # entropy bonus is added to discourage premature convergence of the policy and allow for more exploration (Mnih, Volodymyr, Adria Puigdomenech Badia, Mehdi Mirza, Alex Graves, 
         # Timothy Lillicrap, Tim Harley, David Silver, and Koray Kavukcuoglu. "Asynchronous methods for deep reinforcement learning." In International conference on machine learning, 
@@ -389,10 +390,10 @@ def train_actor(observation_samples, action_samples, logits_samples, advantage_s
     print('Policy optimizer learning rate: ' + str(policy_optimizer.learning_rate.numpy()))
     policy_optimizer.apply_gradients(zip(policy_grads, actor_net.trainable_variables))
 
-    return policy_loss, kl_mean, beta_val
+    return policy_loss, kl_mean
 
 ## Train the value network (critic) using MSE
-@tf.function
+#@tf.function
 def train_critic(observation_samples, return_samples):
     with tf.GradientTape() as tape:
         critic_predictions = critic_net(observation_samples, training=False)
@@ -452,8 +453,8 @@ for run_num in range(n_runs):
     critic_net = create_critic(num_states=n_states, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
 
     ## Initialize the optimizers
-    policy_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_actor_learning_rate, decay_steps=decay_steps, decay_rate=decay_rate)
-    value_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_critic_learning_rate, decay_steps=decay_steps, decay_rate=decay_rate)
+    policy_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_actor_learning_rate, decay_steps=decay_steps_actor, decay_rate=decay_rate)
+    value_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_critic_learning_rate, decay_steps=decay_steps_critic, decay_rate=decay_rate)
     policy_optimizer = keras.optimizers.RMSprop(learning_rate=policy_lr_schedule, rho=rho, momentum=momentum)
     value_optimizer = keras.optimizers.RMSprop(learning_rate=value_lr_schedule, rho=rho, momentum=momentum)
 
@@ -564,6 +565,7 @@ for run_num in range(n_runs):
                     # Log trajectory into the result logger (last observation not stored)
                     for step in range(minibatch_steps):
                         #chosen_act = np.argmax(traj_acts[step, :])
+                        #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_acts[step, :], prev_obs=traj_obs[step, :], reward=traj_rs[step])
                         result_logger.save_to_logger(step_number=overall_step_counter, action=traj_acts[step, 0], prev_obs=traj_obs[step, :], reward=traj_rs[step])
                         overall_step_counter += 1
 
@@ -609,7 +611,8 @@ for run_num in range(n_runs):
                     # Log trajectory into the result logger
                     for step in range(minibatch_steps):
                         #chosen_act = np.argmax(traj_slice_actions[step, :])
-                        result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, :], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
+                        #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, :], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
+                        result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, 0], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
                         overall_step_counter += 1
 
                     # Obtain value estimation from critic for the trajectory observations
@@ -640,7 +643,7 @@ for run_num in range(n_runs):
                 if use_early_stopping:
                     training_end_step = 1
                 for _ in range(train_policy_iterations):
-                    actor_train_loss, mean_kl, beta = train_actor(observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, beta_val=beta, target_kl=kl_targ, entropy_coeff=ent_coeff)
+                    actor_train_loss, mean_kl = train_actor(observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, target_kl=kl_targ, entropy_coeff=ent_coeff)
                     actor_losses_iterations.append(actor_train_loss.numpy())
                     print('Step: ' + str(actor_train_count) + ', actor loss: ' + str(actor_train_loss.numpy()))
                     actor_train_count += 1
@@ -659,7 +662,7 @@ for run_num in range(n_runs):
                 for _ in range(train_value_iterations):
                     critic_train_loss = train_critic(observation_samples=train_minibatch_states, return_samples=train_minibatch_returns)
                     critic_losses_iterations.append(critic_train_loss.numpy())
-                    print('Step: ' + str(critic_train_count) + ', actor loss: ' + str(critic_train_loss.numpy()))
+                    print('Step: ' + str(critic_train_count) + ', critic loss: ' + str(critic_train_loss.numpy()))
                     critic_train_count += 1
                     pbar_val.update(1)
 

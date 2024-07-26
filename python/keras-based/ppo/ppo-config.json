@@ -2,9 +2,9 @@
     "Number of runs": 3, 
     
     "Value discount (gamma)": 0.99, 
-    "Number of training episodes": 100, 
-    "Maximum steps in training episode": 100000, 
-    "Maximum steps in evaluation episode": 100,
+    "Number of training episodes": 50, 
+    "Maximum steps in training episode (for train environment termination)": 100000, 
+    "Maximum steps in evaluation episode (for evaluation environment termination)": 100,
     "Number of evaluation episodes": 5,
     
     "Episode interval for evaluation": 10, 
