@@ -10,6 +10,7 @@
     "NucFac": 3,
 
     "Objective names": ["TrueObjective1","TrueObjective2"],
+    "Objective maximized": [false, false],
     "Heuristic names": ["PartialCollapsibilityViolation","NodalPropertiesViolation","OrientationViolation","IntersectionViolation"],
     "Heuristic abbreviations": ["p","n","o","i"],
     "Heuristics used": [false, false, false, false],

@@ -5,10 +5,11 @@ Support class for the metamaterial design problems with support methods includin
 @author: roshan94
 """
 import numpy as np
+from collections import OrderedDict
 import copy
 
 class MetamaterialSupport:
-    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used):
+    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max):
 
         # Define class parameters
         self.side_elem_length = sel
@@ -22,6 +23,10 @@ class MetamaterialSupport:
         self.obj_names = obj_names
         self.constr_names = constr_names
         self.heur_names = heur_names
+
+        self.obj_max = obj_max
+
+        self.new_reward = new_reward
 
         self.current_PF_objs = []
         self.current_PF_constrs = []
@@ -173,13 +178,23 @@ class MetamaterialSupport:
     def modify_by_action(self, state, action):
 
         # Pass state and action to java operator class
+        if self.new_reward:
+            state_design = state['design']
+            state_obj_weights = state['objective weights']
+        else:
+            state_design = state
         try:
-            self.operations_instance.setCurrentDesign(state.tolist())
+            self.operations_instance.setCurrentDesign(state_design.tolist())
             self.operations_instance.setAction(np.int64(action).tolist())
 
             # Take action and obtain new state
             self.operations_instance.operate()
-            new_state = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
+            new_state_design = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
+            if self.new_reward:
+                new_state = OrderedDict(('design', new_state_design), ('objective weights', state_obj_weights))
+            else:
+                new_state = new_state_design
+
         except:
             current_state = state
             current_action = action
@@ -196,7 +211,7 @@ class MetamaterialSupport:
             des_str += str(dec)
         return des_str
 
-    ## Method to compute reward based on new state (assuming deterministic action outcome from previous state)
+    ## Method to compute reward based on dominance and diversity of new state compared to current PF (assuming deterministic action outcome from previous state)
     def compute_reward(self, prev_state, state, step):
         r = 0
 
@@ -326,6 +341,27 @@ class MetamaterialSupport:
 
         return r
     
+    # Alternative reward computation solely based on the current state's objectives and constraints
+    def compute_reward2(self, state, step):
+        obj_weights = state['design']
+        current_design = state['objective weights']
+        r = 0
+
+        # Evaluate current design
+        objs, constrs, heurs, true_objs = self.evaluate_design(current_design) # objs are normalized with no constraint penalties added
+
+        for obj, weight, max_obj in zip(objs, obj_weights, self.obj_max):
+            if max_obj:
+                r += weight*obj
+            else:
+                r += -weight*obj
+
+        r -= np.mean(constrs)
+
+        r /= (step+1)
+
+        return r
+
     # Method to compute the crowding distance for each design in the objectives list
     def compute_crowding_distances(self, objs_list):
         current_cds = np.zeros((len(objs_list), len(objs_list[0])))

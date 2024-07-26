@@ -59,6 +59,7 @@ max_eval_episodes = data_ppo["Number of evaluation episodes"] # number of episod
 use_buffer = data_ppo["Buffer used"]
 
 eval_interval = data_ppo["Episode interval for evaluation"] # After how many episodes is the actor being evaluated
+new_reward = data_ppo["Use new problem formulation"]
 
 initial_collect_trajs = data_ppo["Initial number of stored trajectories"] # number of trajectories in the driver to populate replay buffer before beginning training (only used if replay buffer is used)
 trajectory_collect_steps = data_ppo["Number of steps in a collected trajectory"] # number of steps in each trajectory
@@ -140,6 +141,7 @@ constr_names = data_prob["Constraint names"]
 #     constr_names = ['FeasibilityViolation','ConnectivityViolation','StiffnessRatioViolation']
 # else:
 #     constr_names = ['FeasibilityViolation','ConnectivityViolation']
+objs_max = data_prob["Objective maximized"]
 
 c_target = data_prob["Target stiffness ratio"]
 # c_target = 1
@@ -465,8 +467,8 @@ for run_num in range(n_runs):
         train_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
         eval_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
     else:
-        train_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
-        eval_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
+        train_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max)
+        eval_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max)
 
     observation = train_env.reset()
     episode_return, episode_length = 0,0
