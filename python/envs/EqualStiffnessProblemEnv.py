@@ -29,9 +29,7 @@ class EqualStiffnessProblemEnv(gym.Env):
         self.is_done = False
         self.n_states = n_states
 
-        self.new_reward = new_reward # Boolean representing the use of compute_reward() (dominance and diversity-based) or compute_reward2() (individual state based) 
-
-        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max)
+        self.new_reward = new_reward # Boolean representing the use of compute_reward() (dominance and diversity-based) or compute_reward2() (individual state based)         
 
         # Action space: defined by n_actions possible actions 
         self.action_space = spaces.Discrete(n_actions, start=0)
@@ -41,11 +39,13 @@ class EqualStiffnessProblemEnv(gym.Env):
             self.observation_space = spaces.Dict(
                 {
                     "design": spaces.MultiBinary(n_states),
-                    "objective weights": spaces.Box(low=0.0, high=1.0, shape=(len(obj_names),1))
+                    "objective weights": spaces.Box(low=0.0, high=1.0, shape=(len(obj_names),), dtype=np.float32)
                 }
             )
         else:
             self.observation_space = spaces.MultiBinary(n_states)
+
+        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space)
 
         # Initial state
         self.start_pos = self.observation_space.sample()
@@ -82,7 +82,7 @@ class EqualStiffnessProblemEnv(gym.Env):
 
         # Compute Reward Function
         if self.new_reward:
-            reward = self.metamat_support.compute_reward2(state=new_pos, obj_weights=self.obj_weights, step=self.step_number)
+            reward = self.metamat_support.compute_reward2(state=new_pos, step=self.step_number)
         else:
             reward = self.metamat_support.compute_reward(prev_state=self.current_pos, state=new_pos, step=self.step_number)
 

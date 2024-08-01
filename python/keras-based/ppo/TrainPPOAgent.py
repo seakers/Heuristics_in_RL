@@ -23,6 +23,7 @@ from pathlib import Path
 current_path = os.path.dirname(os.path.realpath(__file__))
 parent_path = str(Path(current_path).resolve().parents[1]) # parents[i] is the i-th parent from the current directory
 sys.path.append(parent_path)
+from itertools import chain
 
 import tensorflow as tf
 import keras 
@@ -169,7 +170,12 @@ def compute_avg_return(environment, actor, num_steps=100, num_episodes=10):
     for _ in range(num_episodes):
 
         start_obs = environment.reset()
-        state = np.array(start_obs)
+        if new_reward:
+            #start_obs_list = sum(start_obs.values(), [])
+            start_obs_list = list(chain(*start_obs.values()))
+            state = np.array(start_obs_list)
+        else:
+            state = start_obs
 
         episode_return = 0.0
 
@@ -191,7 +197,13 @@ def compute_avg_return(environment, actor, num_steps=100, num_episodes=10):
             if done:
                 break
             else:
-                state = np.array(next_obs)
+                if new_reward:
+                    #next_obs_list = sum(next_obs.values(), [])
+                    next_obs_list = list(chain(*next_obs.values()))
+                    state = np.array(next_obs_list)
+                else:
+                    state = next_obs
+                eval_step += 1
 
         total_return += episode_return
 
@@ -231,7 +243,10 @@ seed = 10
 
 ## Generate trajectories for training
 def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, collect_steps, actor):
-    traj_states = np.zeros((n_trajs, collect_steps, num_states), dtype=np.int32) # The explicit datatype is for py4j compatibility with the Java methods
+    if new_reward:
+        traj_states = np.zeros((n_trajs, collect_steps, num_states), dtype=np.float32) # The explicit datatype is for the additional objective weights states, design is later converted to int32 for py4j compatibility
+    else:
+        traj_states = np.zeros((n_trajs, collect_steps, num_states), dtype=np.int32) # The explicit datatype is for py4j compatibility with the Java methods
     traj_actions = np.zeros((n_trajs, collect_steps, num_actions))
     traj_rewards = np.zeros((n_trajs, collect_steps))
     traj_dones = np.zeros((n_trajs, collect_steps))
@@ -247,6 +262,9 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
         print('Generating trajectory ' + str(traj_count))
 
         observation = train_env.reset()
+        if new_reward:
+            #observation = sum(observation.values(), [])
+            observation = list(chain(*observation.values()))
         state = np.array(observation)    
         
         for step in range(collect_steps):
@@ -260,6 +278,9 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
 
             # Apply action and save to the replay buffer
             next_obs, reward, done, _ = train_env.step(action)
+            if new_reward:
+                #next_obs = sum(next_obs.values(), [])
+                next_obs = list(chain(*next_obs.values()))
             next_state = np.array(next_obs)
             traj_rewards[traj_count, step] = reward
             traj_dones[traj_count, step] = done
@@ -288,11 +309,13 @@ def store_into_buffer(buffer, n_trajs, collect_steps, trajectory_states, traject
 ## Method to sample action from actor network for the current observation
 #@tf.function
 def sample_action(actor, observation):
+    # if new_reward:
+    #     observation = sum(observation.values(), [])
     observation_tensor = tf.convert_to_tensor(observation)
     observation_tensor = tf.expand_dims(observation_tensor, axis=0)
     logits = actor(observation_tensor, training=False)
     action = tf.squeeze(tf.random.categorical(tf.nn.log_softmax(logits), 1, seed=seed), axis=1).numpy()[0]
-    if action == 280:
+    if action >= (len(observation) - len(obj_names)):
         print('Invalid action')
     logits_array = logits.numpy()[0]
     return logits_array, action
@@ -343,7 +366,6 @@ def train_actor(observation_samples, action_samples, logits_samples, advantage_s
     action_samples_array = tf.squeeze(action_samples).numpy()
 
     with tf.GradientTape() as tape:
-
         actor_predictions = actor_net(observation_samples, training=False)
         probabilities_old = tf.nn.softmax(logits_samples)
         probabilities_new = tf.nn.softmax(actor_predictions)
@@ -451,8 +473,12 @@ for run_num in range(n_runs):
     file_name += str(run_num) + ".csv"
 
     ## Initialize actor and critic
-    actor_net = create_actor(num_states=n_states, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
-    critic_net = create_critic(num_states=n_states, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
+    if new_reward:
+        actor_net = create_actor(num_states=n_states+len(obj_names), hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
+        critic_net = create_critic(num_states=n_states+len(obj_names), hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
+    else:
+        actor_net = create_actor(num_states=n_states, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
+        critic_net = create_critic(num_states=n_states, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
 
     ## Initialize the optimizers
     policy_lr_schedule = keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=initial_actor_learning_rate, decay_steps=decay_steps_actor, decay_rate=decay_rate)
@@ -461,7 +487,7 @@ for run_num in range(n_runs):
     value_optimizer = keras.optimizers.RMSprop(learning_rate=value_lr_schedule, rho=rho, momentum=momentum)
 
     # Initialize result saver
-    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names)
+    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward)
 
     if artery_prob:
         train_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
@@ -479,7 +505,10 @@ for run_num in range(n_runs):
         buffer = Buffer(discrete_actions=discrete_actions, max_buffer_size=replay_buffer_capacity, max_traj_steps=trajectory_collect_steps+1, num_actions=n_actions, observation_dimensions=n_states, action_dimensions=n_action_vals)
 
         # Generate the initial set of trajectories to add to buffer
-        init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+        if new_reward:
+            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states+len(obj_names), num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+        else:
+            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net)
         store_into_buffer(buffer=buffer, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps, trajectory_states=init_trajectory_states, trajectory_actions=init_trajectory_actions, trajectory_rewards=init_trajectory_rewards, trajectory_dones=init_trajectory_dones, trajectory_policy_logits=init_trajectory_policy_logits)
 
     ## Start Training
@@ -524,7 +553,10 @@ for run_num in range(n_runs):
                     #returns_step_count += 1
 
             # Predefine arrays for states, actions, rewards, values, advantages, returns and logits for the training minibatch
-            train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states), dtype=np.int32)
+            if new_reward:
+                train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states+len(obj_names)), dtype=np.float32)
+            else:
+                train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states), dtype=np.int32)
             train_minibatch_actions = np.zeros((episode_training_trajs*minibatch_steps, n_actions))
             train_minibatch_rewards = np.zeros(episode_training_trajs*minibatch_steps)
             train_minibatch_values = np.zeros(episode_training_trajs*minibatch_steps)
@@ -538,7 +570,10 @@ for run_num in range(n_runs):
             # Generate a trajectory to add to the buffer
             if use_buffer:
                 print('Add a trajectory to the buffer')
-                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+                if new_reward:
+                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states+len(obj_names), num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+                else:
+                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
                 store_into_buffer(buffer=buffer, n_trajs=1, collect_steps=trajectory_collect_steps, trajectory_states=trajectory_states, trajectory_actions=trajectory_actions, trajectory_rewards=trajectory_rewards, trajectory_dones=trajectory_dones, trajectory_policy_logits=trajectory_policy_logits)
 
             # Generate/sample trajectories to populate training minibatch
@@ -595,7 +630,10 @@ for run_num in range(n_runs):
                 
                 else:
                     # Generate trajectory
-                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+                    if new_reward:
+                        trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states+len(obj_names), num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+                    else:
+                        trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
 
                     # Extract slice from the trajectory (Assumption: continuous trajectory slice is considered instead of random steps in the trajectory)
                     if use_continuous_minibatch:
@@ -718,6 +756,8 @@ for run_num in range(n_runs):
 
 ## Visualize Training
 for i in range(n_runs):
+
+    # Plot individual episodic critic training
     critic_losses_current_run = critic_losses_runs['run' + str(i)]
     train_steps_current_run = critic_loss_steps_runs['run' + str(i)]
     episode_counter = 0
@@ -741,6 +781,8 @@ for i in range(n_runs):
         figure_counter += 1
 
 for i in range(n_runs):
+
+    # Plot individual episodic actor training
     actor_losses_current_run = actor_losses_runs['run' + str(i)]
     train_steps_current_run = actor_loss_steps_runs['run' + str(i)]
     episode_counter = 0
@@ -792,3 +834,112 @@ if compute_periodic_returns:
         #plt.show()
         plt.savefig(save_path + "run " + str(run_counter) + "\\" + "ppo_fig_agent_return.png", dpi=600)
         run_counter += 1
+
+# Plot combined actor and critic training
+actor_loss_combined_runs = {}
+critic_loss_combined_runs = {}
+
+actor_combined_train_steps = {}
+critic_combined_train_steps = {}
+
+for i in range(n_runs):
+    critic_losses_current_run = critic_losses_runs['run' + str(i)]
+    critic_train_steps_current_run = critic_loss_steps_runs['run' + str(i)]
+
+    actor_losses_current_run = actor_losses_runs['run' + str(i)]
+    actor_train_steps_current_run = actor_loss_steps_runs['run' + str(i)]
+
+    # Approach 1: Combine losses for each episode into a single list while filling gaps for early stopped iterations (conducive for statistics)
+    critic_loss_combined_current_run = []
+    actor_loss_combined_current_run = []
+    for j in range(max_train_episodes):
+        critic_loss_combined_current_run.extend(critic_losses_current_run[j]) # critic training is never early stopped
+        
+        actor_loss_current_episode = actor_losses_current_run[j]
+        actor_loss_combined_current_run.extend(actor_loss_current_episode)
+        if len(actor_loss_current_episode) < train_policy_iterations:
+            for k in range(train_policy_iterations - len(actor_loss_current_episode)):
+                actor_loss_combined_current_run.append(actor_loss_current_episode[-1]) # extend list to match the number of policy training iterations by copying the last policy loss
+
+    actor_train_steps_combined_current_run = np.arange(max_train_episodes*train_policy_iterations)
+    critic_train_steps_combined_current_run = np.arange(max_train_episodes*train_value_iterations)
+
+    # # Approach 2: Combine losses for each episode into a single list without filling gaps
+    # critic_loss_combined_current_run = list(chain(*critic_losses_current_run.values()))
+    # actor_loss_combined_current_run = list(chain(*actor_losses_current_run.values()))
+
+    # # Combine train steps for actor and critic into a single list
+    # current_episode_count = 0
+    # critic_train_steps_combined_current_run = []
+    # while current_episode_count < max_train_episodes:
+    #     critic_train_steps_combined_current_run.extend(np.add(critic_train_steps_current_run[current_episode_count], train_value_iterations*current_episode_count))
+    #     current_episode_count += 1
+
+    # actor_train_steps_combined_current_run = []
+    # current_end_step = 0
+    # for j in range(max_train_episodes):
+    #     actor_train_steps_episode = actor_train_steps_current_run[j]
+    #     for j2 in range(len(actor_train_steps_episode)):
+    #         actor_train_steps_combined_current_run.append(actor_train_steps_episode[j2] + (current_end_step + 1))
+    #     current_end_step = actor_train_steps_combined_current_run[-1]
+
+    actor_loss_combined_runs['run ' + str(i)] = actor_loss_combined_current_run
+    critic_loss_combined_runs['run ' + str(i)] = critic_loss_combined_current_run
+
+    actor_combined_train_steps['run ' + str(i)] = actor_train_steps_combined_current_run
+    critic_combined_train_steps['run ' + str(i)] = critic_train_steps_combined_current_run
+
+# Compute statistics 
+n_stats_interval = 5
+
+actor_stats_steps = np.arange(max_train_episodes*train_policy_iterations, step=n_stats_interval)
+critic_stats_steps = np.arange(max_train_episodes*train_value_iterations, step=n_stats_interval)
+
+actor_loss_med = []
+actor_loss_1q = []
+actor_loss_3q = []
+
+critic_loss_med = []
+critic_loss_1q = []
+critic_loss_3q = []
+
+for step_val in actor_stats_steps:
+    actor_loss_runs = np.zeros(n_runs)
+    critic_loss_runs = np.zeros(n_runs)
+
+    for i in range(n_runs):
+        actor_step_idx = list(actor_combined_train_steps['run ' + str(i)]).index(step_val)
+        actor_loss_runs[i] = actor_loss_combined_runs['run ' + str(i)][actor_step_idx]
+
+        critic_step_idx = list(critic_combined_train_steps['run ' + str(i)]).index(step_val)
+        critic_loss_runs[i] = critic_loss_combined_runs['run ' + str(i)][critic_step_idx]
+
+    actor_loss_med.append(np.median(actor_loss_runs))
+    actor_loss_1q.append(np.percentile(actor_loss_runs, 25))
+    actor_loss_3q.append(np.percentile(actor_loss_runs, 75))
+
+    critic_loss_med.append(np.median(critic_loss_runs))
+    critic_loss_1q.append(np.percentile(critic_loss_runs, 25))
+    critic_loss_3q.append(np.percentile(critic_loss_runs, 75))
+
+# Plotting actor combined training
+plt.figure()
+plt.plot(actor_stats_steps, actor_loss_med)
+plt.fill_between(actor_stats_steps, actor_loss_1q, actor_loss_3q, alpha=0.6)
+plt.xlabel('Training step')
+plt.ylabel('Actor loss')
+plt.grid()
+plt.title('Actor training: episodes combined and averaged over runs')
+#plt.show()
+plt.savefig(save_path + "run " + str(i) + "\\" + "ppo_actor_combined_train.png", dpi=600)
+
+# Plotting critic combined training
+plt.figure()
+plt.plot(critic_stats_steps, critic_loss_med)
+plt.fill_between(critic_stats_steps, critic_loss_1q, critic_loss_3q, alpha=0.6)
+plt.xlabel('Training step')
+plt.ylabel('Critic loss')
+plt.grid()
+plt.title('Critic training: episodes combined and averaged over runs')
+#plt.show()
+plt.savefig(save_path + "run " + str(i) + "\\" + "ppo_critic_combined_train.png", dpi=600)

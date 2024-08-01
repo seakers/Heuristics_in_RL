@@ -9,7 +9,7 @@ from collections import OrderedDict
 import copy
 
 class MetamaterialSupport:
-    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max):
+    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space):
 
         # Define class parameters
         self.side_elem_length = sel
@@ -27,6 +27,7 @@ class MetamaterialSupport:
         self.obj_max = obj_max
 
         self.new_reward = new_reward
+        self.obs_space = obs_space
 
         self.current_PF_objs = []
         self.current_PF_constrs = []
@@ -183,6 +184,7 @@ class MetamaterialSupport:
             state_obj_weights = state['objective weights']
         else:
             state_design = state
+
         try:
             self.operations_instance.setCurrentDesign(state_design.tolist())
             self.operations_instance.setAction(np.int64(action).tolist())
@@ -191,10 +193,12 @@ class MetamaterialSupport:
             self.operations_instance.operate()
             new_state_design = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
             if self.new_reward:
-                new_state = OrderedDict(('design', new_state_design), ('objective weights', state_obj_weights))
+                new_state = self.obs_space.sample()
+                new_state['design'] = new_state_design
+                new_state['objective weights'] = state_obj_weights
+                #new_state = OrderedDict(('design', new_state_design), ('objective weights', state_obj_weights))
             else:
                 new_state = new_state_design
-
         except:
             current_state = state
             current_action = action
@@ -343,14 +347,15 @@ class MetamaterialSupport:
     
     # Alternative reward computation solely based on the current state's objectives and constraints
     def compute_reward2(self, state, step):
-        obj_weights = state['design']
-        current_design = state['objective weights']
+        current_design = state['design']
+        obj_weights = state['objective weights']
+        obj_weights_normalized = np.divide(obj_weights, np.sum(obj_weights))
         r = 0
 
         # Evaluate current design
         objs, constrs, heurs, true_objs = self.evaluate_design(current_design) # objs are normalized with no constraint penalties added
 
-        for obj, weight, max_obj in zip(objs, obj_weights, self.obj_max):
+        for obj, weight, max_obj in zip(objs, obj_weights_normalized, self.obj_max):
             if max_obj:
                 r += weight*obj
             else:

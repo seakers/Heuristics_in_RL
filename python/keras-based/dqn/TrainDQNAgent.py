@@ -155,6 +155,7 @@ def compute_avg_return(environment, q_net, num_steps=100, num_episodes=10):
                 break
             else:
                 state = np.array(next_obs)
+            eval_step += 1
         
         total_return += episode_return
 
