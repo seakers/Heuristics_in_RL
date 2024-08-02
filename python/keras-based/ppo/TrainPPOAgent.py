@@ -103,8 +103,10 @@ train_value_iterations = data_ppo["Number of critic training iterations"]
 initial_actor_learning_rate = data_ppo["Initial actor training learning rate"]
 initial_critic_learning_rate = data_ppo["Initial critic training learning_rate"]  
 decay_rate = data_ppo["Learning rate decay rate"]
-decay_steps_actor = max_train_episodes*train_policy_iterations 
-decay_steps_critic = max_train_episodes*train_value_iterations 
+decay_steps_actor = data_ppo["Learning rate decay steps (actor)"]
+decay_steps_critic = data_ppo["Learning rate decay steps (critic)"]
+#decay_steps_actor = max_train_episodes*train_policy_iterations 
+#decay_steps_critic = max_train_episodes*train_value_iterations 
 rho = data_ppo["RMSprop optimizer rho"]
 momentum = data_ppo["RMSprop optimizer momentum"]
 
@@ -351,10 +353,12 @@ def compute_advantages_and_returns(indices, full_rewards, full_values, ad_norm):
         full_returns[ind] = discounted_cumulative_sums(full_rewards[ind:], discount_array[ind:])
 
     if ad_norm:
-        full_advantage_mean = np.mean(full_advantages)
-        full_advantage_std = np.std(full_advantages)
+        #full_advantage_mean = np.mean(full_advantages)
+        #full_advantage_std = np.std(full_advantages)
+        #full_advantages = np.divide(np.subtract(full_advantages, full_advantage_mean), full_advantage_std)
 
-        full_advantages = np.divide(np.subtract(full_advantages, full_advantage_mean), full_advantage_std)
+        full_advantage_max = np.max(np.absolute(full_advantages))
+        full_advantages = np.divide(full_advantages, full_advantage_max)
 
     #self.trajectory_start_index = self.current_end_position
 
@@ -931,7 +935,7 @@ plt.ylabel('Actor loss')
 plt.grid()
 plt.title('Actor training: episodes combined and averaged over runs')
 #plt.show()
-plt.savefig(save_path + "run " + str(i) + "\\" + "ppo_actor_combined_train.png", dpi=600)
+plt.savefig(save_path + "ppo_actor_combined_train.png", dpi=600)
 
 # Plotting critic combined training
 plt.figure()
@@ -942,4 +946,4 @@ plt.ylabel('Critic loss')
 plt.grid()
 plt.title('Critic training: episodes combined and averaged over runs')
 #plt.show()
-plt.savefig(save_path + "run " + str(i) + "\\" + "ppo_critic_combined_train.png", dpi=600)
+plt.savefig(save_path + "ppo_critic_combined_train.png", dpi=600)

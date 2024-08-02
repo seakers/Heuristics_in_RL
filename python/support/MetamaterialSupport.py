@@ -355,6 +355,11 @@ class MetamaterialSupport:
         # Evaluate current design
         objs, constrs, heurs, true_objs = self.evaluate_design(current_design) # objs are normalized with no constraint penalties added
 
+        # High stiffness ratio constraint violations reduced to be the same magnitude as other violations (generally stiffness ratio violations for designs that cannot be evaluated by the model is 999)
+        constrs_array = np.array(constrs)
+        constrs_array[constrs_array >= 5] = 5
+        constrs = list(constrs_array)
+
         for obj, weight, max_obj in zip(objs, obj_weights_normalized, self.obj_max):
             if max_obj:
                 r += weight*obj
