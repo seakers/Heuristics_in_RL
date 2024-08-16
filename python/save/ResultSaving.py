@@ -8,7 +8,7 @@ import csv
 import numpy as np
 
 class ResultSaver:
-    def __init__(self, save_path, operations_instance, obj_names, constr_names, heur_names, new_reward):
+    def __init__(self, save_path, operations_instance, obj_names, constr_names, heur_names, new_reward, include_weights):
         
         # Define class parameters
         self.save_path = save_path # must include {filename}.csv
@@ -17,31 +17,76 @@ class ResultSaver:
         self.constraint_names = constr_names
         self.heuristic_names = heur_names
         self.new_reward = new_reward
+        self.include_weights = include_weights
 
         self.explored_design_objectives = {}
         self.explored_design_constraints = {}
         self.explored_design_heuristics = {}
         self.step_logger = {}
 
+    def save_to_logger2(self, step_number, action, truss_design, reward):
+        current_design = truss_design.get_design()
+        current_state = "".join([str(dec) for dec in current_design])
+        step_info['Observation'] =  current_state # bitstring or array as string
+
+        if self.new_reward:
+            # Hard coded for two objectives for now
+            if self.include_weights:
+                step_info['Objective Weight 0'] = truss_design.get_weight()
+                step_info['Objective Weight 1'] = 1 - truss_design.get_weight()
+
+        # Save step results with step number as key
+        step_info = {}
+        step_info['Step Number'] = step_number
+        step_info['Action'] = action
+        step_info['Reward'] = reward
+        step_info['NFE'] = truss_design.get_nfe()
+        
+        true_objectives = truss_design.get_objs()
+        constraints = truss_design.get_constrs()
+        heuristics = truss_design.get_heurs()
+
+        for i in range(len(self.objective_names)):
+            step_info[self.objective_names[i]] = true_objectives[i]
+
+        for j in range(len(self.constraint_names)):
+            step_info[self.constraint_names[j]] = constraints[j]
+
+        for k in range(len(self.heuristic_names)):
+            step_info[self.heuristic_names[k]] = heuristics[k]
+        
+        self.step_logger[step_number] = step_info
+
     def save_to_logger(self, step_number, action, prev_obs, reward):
         
         # Note: make sure objectives, constraints and heuristics are consistent with the order of the names
         if self.new_reward:
-            prev_obs_design = np.int32(prev_obs[:(len(prev_obs) - len(self.objective_names))])
-            current_state = "".join([str(dec) for dec in prev_obs_design])
+            if self.include_weights:
+                prev_obs_design = np.int32(prev_obs[:(len(prev_obs) - (len(self.objective_names)-1))])
+                current_state = "".join([str(dec) for dec in prev_obs_design])
+            else:
+                current_state = "".join([str(dec) for dec in prev_obs])
         else:
             current_state = "".join([str(dec) for dec in prev_obs])
         
-        # Save step results with step number as key
+        # Save step results with step number as key (TODO: find and save NFE separately)
         step_info = {}
         step_info['Step Number'] = step_number
         step_info['Action'] = action
         step_info['Observation'] =  current_state # bitstring or array as string
         if self.new_reward:
-            for i in range(len(self.objective_names)):
-                step_info['Objective Weight ' + str(i)] = prev_obs[-(len(self.objective_names)-i)]
+            # for i in range(len(self.objective_names)-1):
+            #     step_info['Objective Weight ' + str(i)] = prev_obs[-(len(self.objective_names)-i)]
+            # step_info['Objective Weight ' + str(i+1)] = 1 - prev_obs[-(len(self.objective_names)-i)]
+            
+            # Hard coded for two objectives for now
+            if self.include_weights:
+                step_info['Objective Weight 0'] = prev_obs[-1]
+                step_info['Objective Weight 1'] = 1 - prev_obs[-1]
+
         step_info['Reward'] = reward
 
+        ## OLd formulation
         # Evaluate a new state or extract objectivesm constraints and heuristics for previously explored design
         if not current_state in list(self.explored_design_objectives.keys()):
             if self.new_reward:
@@ -78,7 +123,7 @@ class ResultSaver:
             field_names.append('Action')
             field_names.append('Reward')
         else:
-            field_names = ['Step Number', 'Observation', 'Action', 'Reward']
+            field_names = ['Step Number', 'NFE', 'Observation', 'Action', 'Reward']
         field_names.extend(self.objective_names)
         field_names.extend(self.constraint_names)
         field_names.extend(self.heuristic_names)

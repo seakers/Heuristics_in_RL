@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class EqualStiffnessProblemEnv(gym.Env):
-    def __init__(self, operations_instance, n_actions, n_states, max_steps, model_sel, sel, sidenum, rad, E_mod, c_target, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used, render_steps, new_reward, obj_max):
+    def __init__(self, operations_instance, n_actions, n_states, max_steps, model_sel, sel, sidenum, rad, E_mod, c_target, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used, render_steps, new_reward, obj_max, include_wts_in_state):
 
         super(EqualStiffnessProblemEnv, self).__init__()
 
@@ -27,6 +27,7 @@ class EqualStiffnessProblemEnv(gym.Env):
         self.render_steps = render_steps
 
         self.is_done = False
+        self.include_weights_in_state = include_wts_in_state
         self.n_states = n_states
 
         self.new_reward = new_reward # Boolean representing the use of compute_reward() (dominance and diversity-based) or compute_reward2() (individual state based)         
@@ -36,16 +37,19 @@ class EqualStiffnessProblemEnv(gym.Env):
 
         # State space: defined by n_states design decisions representing complete designs
         if new_reward:
-            self.observation_space = spaces.Dict(
-                {
-                    "design": spaces.MultiBinary(n_states),
-                    "objective weights": spaces.Box(low=0.0, high=1.0, shape=(len(obj_names),), dtype=np.float32)
-                }
-            )
+            if self.include_weights_in_state:
+                self.observation_space = spaces.Dict(
+                    {
+                        "design": spaces.MultiBinary(n_states),
+                        "objective weight0": spaces.Box(low=0.0, high=1.0, shape=(len(obj_names)-1,), dtype=np.float32) # This problem has only 2 objectives so the other weight is just 1 - this weight
+                    }
+                )
+            else:
+                self.observation_space = spaces.MultiBinary(n_states)
         else:
             self.observation_space = spaces.MultiBinary(n_states)
 
-        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space)
+        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space, )
 
         # Initial state
         self.start_pos = self.observation_space.sample()
@@ -69,7 +73,7 @@ class EqualStiffnessProblemEnv(gym.Env):
         self.metamat_support.current_design_hashset = set()
         return self.current_pos
     
-    def step(self, action):
+    def step(self, action, nfe_val, traj_start):
         # Modify design based on selected action (use method that calls Java Gateway)
         new_pos = self.metamat_support.modify_by_action(self.current_pos, action)
         
@@ -82,7 +86,7 @@ class EqualStiffnessProblemEnv(gym.Env):
 
         # Compute Reward Function
         if self.new_reward:
-            reward = self.metamat_support.compute_reward2(state=new_pos, step=self.step_number)
+            reward, mod_nfe, current_truss_des, new_truss_des = self.metamat_support.compute_reward2(prev_state=self.current_pos, state=new_pos, nfe_val=nfe_val, start_of_traj=traj_start)
         else:
             reward = self.metamat_support.compute_reward(prev_state=self.current_pos, state=new_pos, step=self.step_number)
 
@@ -98,7 +102,13 @@ class EqualStiffnessProblemEnv(gym.Env):
         done = terminated or truncated
         self.is_done = done
 
-        return self.current_pos, reward, done, {}
+        kw_arg = {}
+        if self.new_reward:    
+            kw_arg['Current NFE'] = mod_nfe
+            kw_arg['Current truss design'] = current_truss_des
+            kw_arg['New truss design'] = new_truss_des
+
+        return self.current_pos, reward, done, kw_arg
     
     def get_step_counter(self):
         return self.step_number

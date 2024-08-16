@@ -62,7 +62,7 @@
   </component>
   <component name="ProjectId" id="2YPNjRZeA75TLFQzhJoG81eCpXE" />
   <component name="PropertiesComponent">
-    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/../Truss_Gen" />
     <property name="settings.editor.selected.configurable" value="preferences.externalDependencies" />
   </component>
   <component name="RecentsManager">
@@ -204,16 +204,5 @@
         </entry>
       </map>
     </option>
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="java-line">
-          <url>jar://$MAVEN_REPOSITORY$/seakers/Truss_AOS/1.0-SNAPSHOT/Truss_AOS-1.0-SNAPSHOT.jar!/seakers/trussaos/problems/ConstantRadiusTrussProblem2.class</url>
-          <line>193</line>
-          <option name="timeStamp" value="23" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
   </component>
 </project>

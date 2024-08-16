@@ -44,7 +44,10 @@ import math
 from py4j.java_gateway import JavaGateway
 from py4j.java_gateway import GatewayParameters
 
+import time
+
 ## Setup and train parameters from config file
+start_time = time.time()
 f_ppo = open('.\\keras-based\\ppo\\ppo-config.json')
 data_ppo = json.load(f_ppo)
 
@@ -57,17 +60,19 @@ max_steps = data_ppo["Maximum steps in training episode (for train environment t
 max_eval_steps = data_ppo["Maximum steps in evaluation episode (for evaluation environment termination)"] # termination in evaluation environment
 max_eval_episodes = data_ppo["Number of evaluation episodes"] # number of episodes per evaluation of the actor
 
+max_unique_nfe_run = data_ppo["Maximum unique NFE"]
+
 use_buffer = data_ppo["Buffer used"]
 
 eval_interval = data_ppo["Episode interval for evaluation"] # After how many episodes is the actor being evaluated
 new_reward = data_ppo["Use new problem formulation"]
+include_weights = data_ppo["Include weights in state"]
 
 initial_collect_trajs = data_ppo["Initial number of stored trajectories"] # number of trajectories in the driver to populate replay buffer before beginning training (only used if replay buffer is used)
 trajectory_collect_steps = data_ppo["Number of steps in a collected trajectory"] # number of steps in each trajectory
 episode_training_trajs = data_ppo["Number of trajectories used for training per episode"] # number of trajectories sampled in each iteration to train the actor and critic
 minibatch_steps = data_ppo["Number of steps in a minibatch"]
 replay_buffer_capacity = data_ppo["Replay buffer capacity"] # maximum number of trajectories that can be stored in the buffer
-
 
 if minibatch_steps > trajectory_collect_steps:
     print("Number of steps in a minibatch is greater than the number of collected steps, reduce the minibatch steps")
@@ -112,8 +117,13 @@ momentum = data_ppo["RMSprop optimizer momentum"]
 
 compute_periodic_returns = data_ppo["Compute periodic returns"]
 use_continuous_minibatch = data_ppo["Continuous minibatch"] # use continuous trajectory slices to generate minibatch for training or random transitions from all trajectories
+network_save_intervals = data_ppo["Episode interval to save actor and critic networks"]
 
 save_path = data_ppo["Savepath"]
+
+if network_save_intervals > max_train_episodes:
+    print("Episode interval to save networks is greater than number of training episodes")
+    sys.exit(0)
 
 ## Load problem parameters from config file
 f_prob = open('.\\keras-based\\problem-config.json')
@@ -244,7 +254,9 @@ def log_probabilities(logits, a, num_actions):
 seed = 10
 
 ## Generate trajectories for training
-def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, collect_steps, actor):
+def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, collect_steps, actor, current_nfe):
+    
+    traj_truss_des = []
     if new_reward:
         traj_states = np.zeros((n_trajs, collect_steps, num_states), dtype=np.float32) # The explicit datatype is for the additional objective weights states, design is later converted to int32 for py4j compatibility
     else:
@@ -269,6 +281,8 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
             observation = list(chain(*observation.values()))
         state = np.array(observation)    
         
+        current_traj_des = []
+
         for step in range(collect_steps):
 
             traj_states[traj_count, step, :] = state
@@ -279,14 +293,26 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
             traj_actions[traj_count, step, :] = action
 
             # Apply action and save to the replay buffer
-            next_obs, reward, done, _ = train_env.step(action)
+            traj_start = False
+            if step == 0:
+                traj_start = True
+
+            next_obs, reward, done, add_arg = train_env.step(action, current_nfe, traj_start)
             if new_reward:
                 #next_obs = sum(next_obs.values(), [])
                 next_obs = list(chain(*next_obs.values()))
+                current_nfe = add_arg['Current NFE']
+                current_truss_des = add_arg['Current truss design']
+                new_truss_des = add_arg['New truss design']
             next_state = np.array(next_obs)
             traj_rewards[traj_count, step] = reward
             traj_dones[traj_count, step] = done
 
+            if new_reward:
+                if not current_truss_des == None:
+                    current_traj_des.append(current_truss_des)
+                current_traj_des.append(new_truss_des)
+            
             #buffer.store_to_trajectory(state, action, reward, logits)
 
             if done:
@@ -295,16 +321,17 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
 
             state = next_state
 
-        #buffer.store_to_buffer()
+        if new_reward:
+            traj_truss_des.append(current_traj_des)
 
-    return traj_states, traj_actions, traj_rewards, traj_dones, traj_policy_logits
+    return traj_states, traj_actions, traj_rewards, traj_dones, traj_policy_logits, traj_truss_des, current_nfe
 
 ## Method to store trajectories to buffer
-def store_into_buffer(buffer, n_trajs, collect_steps, trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits):
+def store_into_buffer(buffer, n_trajs, collect_steps, trajectory_states, trajectory_truss_designs, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits):
     for traj_count in range(n_trajs):
         print('Storing trajectory ' + str(traj_count) + ' into buffer')
         for step in range(collect_steps):
-            buffer.store_to_trajectory(trajectory_states[traj_count, step, :], trajectory_actions[traj_count, step, :], trajectory_rewards[traj_count, step], \
+            buffer.store_to_trajectory(trajectory_states[traj_count, step, :], trajectory_truss_designs[traj_count][step], trajectory_actions[traj_count, step, :], trajectory_rewards[traj_count, step], \
                     trajectory_dones[traj_count, step], trajectory_policy_logits[traj_count, step, :])
         buffer.store_to_buffer()
 
@@ -317,17 +344,27 @@ def sample_action(actor, observation):
     observation_tensor = tf.expand_dims(observation_tensor, axis=0)
     logits = actor(observation_tensor, training=False)
     action = tf.squeeze(tf.random.categorical(tf.nn.log_softmax(logits), 1, seed=seed), axis=1).numpy()[0]
-    if action >= (len(observation) - len(obj_names)):
+    if action >= (len(observation) - (len(obj_names)-1)): # Assuming the weights of all but last objective are in the state
         print('Invalid action')
     logits_array = logits.numpy()[0]
     return logits_array, action
 
 ## Define method to compute cumulative discounted rewards and advantages
-def discounted_cumulative_sums(rewards, discount):
+def discounted_cumulative_sums(rewards, compute_advantage=True):
+    # compute_advantage = True -> discount value is lam*gamma^t
+    # compute_advantage = False -> discount value is gamma^t (i.e. value is being computed)
+
+    discount_array = np.ones(len(rewards))
+    for i in range(len(rewards)):
+        if compute_advantage:
+            discount_array[i] = (lam*gamma)**i
+        else:
+            discount_array[i] = gamma**i
+    
     sum = 0
 
     # Ensure that first value in discount array is 1
-    for (current_reward, current_discount) in zip(rewards, discount):
+    for (current_reward, current_discount) in zip(rewards, discount_array):
         sum += current_discount*current_reward
 
     return sum
@@ -340,17 +377,11 @@ def compute_advantages_and_returns(indices, full_rewards, full_values, ad_norm):
     for i in range(len(full_rewards)-1):
         full_deltas[i] = full_rewards[i] + gamma*full_values[i+1] - full_values[i]
 
-    discount_array = np.ones(len(full_rewards)-1)
-    advantage_discount_array = np.ones(len(full_rewards)-1)
-    for i in range(len(full_rewards)-1):
-        discount_array[i] = gamma**i
-        advantage_discount_array[i] = (lam*gamma)**i
-    
     full_advantages = np.zeros(len(full_rewards)-1)
     full_returns = np.zeros(len(full_rewards)-1)
     for ind in range(len(full_rewards)-1):
-        full_advantages[ind] = discounted_cumulative_sums(full_deltas[ind:], advantage_discount_array[ind:])
-        full_returns[ind] = discounted_cumulative_sums(full_rewards[ind:], discount_array[ind:])
+        full_advantages[ind] = discounted_cumulative_sums(full_deltas[ind:], compute_advantage=True)
+        full_returns[ind] = discounted_cumulative_sums(full_rewards[ind:], compute_advantage=False)
 
     if ad_norm:
         #full_advantage_mean = np.mean(full_advantages)
@@ -442,7 +473,9 @@ def train_critic(observation_samples, return_samples):
 
     return value_loss
 
-## Operation
+########################################## Operation ##########################################
+global_nfe = 0
+
 if compute_periodic_returns:
     returns_runs = {}
     returns_steps_runs = {}
@@ -478,8 +511,8 @@ for run_num in range(n_runs):
 
     ## Initialize actor and critic
     if new_reward:
-        actor_net = create_actor(num_states=n_states+len(obj_names), hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
-        critic_net = create_critic(num_states=n_states+len(obj_names), hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
+        actor_net = create_actor(num_states=n_states+len(obj_names)-1, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions) # Assuming the weights of all but last objective are in the state
+        critic_net = create_critic(num_states=n_states+len(obj_names)-1, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params) # Assuming the weights of all but last objective are in the state
     else:
         actor_net = create_actor(num_states=n_states, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions)
         critic_net = create_critic(num_states=n_states, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params)
@@ -491,14 +524,14 @@ for run_num in range(n_runs):
     value_optimizer = keras.optimizers.RMSprop(learning_rate=value_lr_schedule, rho=rho, momentum=momentum)
 
     # Initialize result saver
-    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward)
+    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights)
 
     if artery_prob:
         train_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
         eval_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
     else:
-        train_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max)
-        eval_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max)
+        train_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights)
+        eval_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights)
 
     observation = train_env.reset()
     episode_return, episode_length = 0,0
@@ -510,10 +543,13 @@ for run_num in range(n_runs):
 
         # Generate the initial set of trajectories to add to buffer
         if new_reward:
-            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states+len(obj_names), num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+            # Assuming the weights of all but last objective are in the state
+            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits, init_trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states+len(obj_names)-1, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+            global_nfe = modified_nfe
         else:
-            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net)
-        store_into_buffer(buffer=buffer, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps, trajectory_states=init_trajectory_states, trajectory_actions=init_trajectory_actions, trajectory_rewards=init_trajectory_rewards, trajectory_dones=init_trajectory_dones, trajectory_policy_logits=init_trajectory_policy_logits)
+            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits, init_trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+            global_nfe = modified_nfe
+        store_into_buffer(buffer=buffer, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps, trajectory_states=init_trajectory_states, trajectory_truss_designs=init_trajectory_truss_des, trajectory_actions=init_trajectory_actions, trajectory_rewards=init_trajectory_rewards, trajectory_dones=init_trajectory_dones, trajectory_policy_logits=init_trajectory_policy_logits)
 
     ## Start Training
     print('Starting training')
@@ -540,193 +576,235 @@ for run_num in range(n_runs):
 
         for episode in range(max_train_episodes):
 
-            critic_losses_iterations = []
-            actor_losses_iterations = []
+            try:
+                while True:
+                    critic_losses_iterations = []
+                    actor_losses_iterations = []
 
-            critic_loss_steps = []
-            actor_loss_steps = []
+                    critic_loss_steps = []
+                    actor_loss_steps = []
 
-            # Evaluate actor at chosen intervals
-            if compute_periodic_returns:
-                if episode % eval_interval == 0:
-                    avg_return = compute_avg_return(eval_env, actor_net, max_eval_steps, max_eval_episodes)
-                    #print('step = {0}: Average Return = {1:.2f}'.format(returns_step_count, avg_return))
-                    print('episode = {0}: Average Return = {1:.2f}'.format(episode, avg_return))
-                    returns_episodes.append(avg_return)
-                    returns_episodes_steps.append(episode)
-                    #returns_step_count += 1
+                    # Evaluate actor at chosen intervals
+                    if compute_periodic_returns:
+                        if episode % eval_interval == 0:
+                            avg_return = compute_avg_return(eval_env, actor_net, max_eval_steps, max_eval_episodes)
+                            #print('step = {0}: Average Return = {1:.2f}'.format(returns_step_count, avg_return))
+                            print('episode = {0}: Average Return = {1:.2f}'.format(episode, avg_return))
+                            returns_episodes.append(avg_return)
+                            returns_episodes_steps.append(episode)
+                            #returns_step_count += 1
 
-            # Predefine arrays for states, actions, rewards, values, advantages, returns and logits for the training minibatch
-            if new_reward:
-                train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states+len(obj_names)), dtype=np.float32)
-            else:
-                train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states), dtype=np.int32)
-            train_minibatch_actions = np.zeros((episode_training_trajs*minibatch_steps, n_actions))
-            train_minibatch_rewards = np.zeros(episode_training_trajs*minibatch_steps)
-            train_minibatch_values = np.zeros(episode_training_trajs*minibatch_steps)
-            train_minibatch_advantages = np.zeros(episode_training_trajs*minibatch_steps)
-            train_minibatch_returns = np.zeros(episode_training_trajs*minibatch_steps)
-            if discrete_actions:
-                train_minibatch_logits = np.zeros((episode_training_trajs*minibatch_steps, n_actions*n_action_vals), dtype=np.float32) 
-            else:
-                train_minibatch_logits = np.zeros((episode_training_trajs*minibatch_steps, 2 * n_actions), dtype=np.float32)
-
-            # Generate a trajectory to add to the buffer
-            if use_buffer:
-                print('Add a trajectory to the buffer')
-                if new_reward:
-                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states+len(obj_names), num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
-                else:
-                    trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
-                store_into_buffer(buffer=buffer, n_trajs=1, collect_steps=trajectory_collect_steps, trajectory_states=trajectory_states, trajectory_actions=trajectory_actions, trajectory_rewards=trajectory_rewards, trajectory_dones=trajectory_dones, trajectory_policy_logits=trajectory_policy_logits)
-
-            # Generate/sample trajectories to populate training minibatch
-            for traj_step in range(episode_training_trajs):
-                print('Generate/sample trajectories for training')
-
-                if use_buffer:
-                    # Sample trajectories from the buffer
-                    n_stored_trajs = buffer.get_num_trajectories()
-
-                    # Retrieve a random trajectory slice from the buffer to construct training minibatch 
-                    traj_idx = np.random.randint(low=0, high=n_stored_trajs)
-                    traj_full_obs, traj_full_acts, traj_full_rs, traj_full_dones, traj_full_logits = buffer.get_trajectory(trajectory_index=traj_idx)
-                    if use_continuous_minibatch:
-                        start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
-                        end_idx = start_idx + minibatch_steps
-                        indices_array = np.arange(start_idx, end_idx)
-                    else:
-                        indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
-                    traj_obs = traj_full_obs[indices_array, :]
-                    traj_acts = traj_full_acts[indices_array, :]
-                    traj_rs = traj_full_rs[indices_array]
-                    traj_dones = traj_full_dones[indices_array]
-                    traj_logits = traj_full_logits[indices_array, :]
-
-                    # Log trajectory into the result logger (last observation not stored)
-                    for step in range(minibatch_steps):
-                        #chosen_act = np.argmax(traj_acts[step, :])
-                        #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_acts[step, :], prev_obs=traj_obs[step, :], reward=traj_rs[step])
-                        result_logger.save_to_logger(step_number=overall_step_counter, action=traj_acts[step, 0], prev_obs=traj_obs[step, :], reward=traj_rs[step])
-                        overall_step_counter += 1
-
-                    # Obtain value estimation from critic for the trajectory observations
-                    #traj_obs_exp = tf.expand_dims(traj_obs, axis=0)
-                    traj_full_vals = critic_net(traj_full_obs, training=False)
-                    traj_full_vals_array = tf.squeeze(traj_full_vals).numpy()
-                    traj_vals_array = traj_full_vals_array[indices_array]
-
-                    # Obtain estimated value for additional observation separately
-                    #traj_objs_end_expanded = tf.expand_dims(traj_obs[-1,:], axis=0)
-                    #traj_val_end = tf.squeeze(critic_net(traj_objs_end_expanded, training=False)).numpy()
-
-                    # Compute advantages and returns using the rewards and value estimates
-                    traj_returns, traj_advantages = compute_advantages_and_returns(indices_array, traj_full_rs, traj_full_vals_array, advantage_norm)
-
-                    # Add to minibatch
-                    train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_obs
-                    train_minibatch_actions[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_acts
-                    train_minibatch_rewards[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_rs
-                    train_minibatch_values[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_vals_array
-                    train_minibatch_returns[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_returns
-                    train_minibatch_advantages[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_advantages
-                    train_minibatch_logits[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_logits    
-                
-                else:
-                    # Generate trajectory
+                    # Predefine arrays for states, actions, rewards, values, advantages, returns and logits for the training minibatch
                     if new_reward:
-                        trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states+len(obj_names), num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
+                        # Assuming the weights of all but last objective are in the state
+                        train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states+len(obj_names)-1), dtype=np.float32)
                     else:
-                        trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net)
-
-                    # Extract slice from the trajectory (Assumption: continuous trajectory slice is considered instead of random steps in the trajectory)
-                    if use_continuous_minibatch:
-                        start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
-                        end_idx = start_idx + minibatch_steps
-                        indices_array = np.arange(start_idx, end_idx)    
+                        train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states), dtype=np.int32)
+                    train_minibatch_actions = np.zeros((episode_training_trajs*minibatch_steps, n_actions))
+                    train_minibatch_rewards = np.zeros(episode_training_trajs*minibatch_steps)
+                    train_minibatch_values = np.zeros(episode_training_trajs*minibatch_steps)
+                    train_minibatch_advantages = np.zeros(episode_training_trajs*minibatch_steps)
+                    train_minibatch_returns = np.zeros(episode_training_trajs*minibatch_steps)
+                    if discrete_actions:
+                        train_minibatch_logits = np.zeros((episode_training_trajs*minibatch_steps, n_actions*n_action_vals), dtype=np.float32) 
                     else:
-                        indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
+                        train_minibatch_logits = np.zeros((episode_training_trajs*minibatch_steps, 2 * n_actions), dtype=np.float32)
 
-                    traj_slice_states = trajectory_states[0, indices_array, :]
-                    traj_slice_actions = trajectory_actions[0, indices_array, :]
-                    traj_slice_rewards = trajectory_rewards[0, indices_array]
-                    traj_slice_policy_logits = trajectory_policy_logits[0, indices_array, :]
-
-                    # Log trajectory into the result logger
-                    for step in range(minibatch_steps):
-                        #chosen_act = np.argmax(traj_slice_actions[step, :])
-                        #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, :], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
-                        result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, 0], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
-                        overall_step_counter += 1
-
-                    # Obtain value estimation from critic for the trajectory observations
-                    #trajectory_states_exp = tf.expand_dims(trajectory_states, axis=0)
-                    trajectory_vals = critic_net(trajectory_states, training=False)
-                    trajectory_vals_array = tf.squeeze(trajectory_vals).numpy()
-                    traj_slice_vals = trajectory_vals_array[indices_array]
-
-                    # Obtain estimated value for additional observation separately
-                    #traj_slice_end_state_expanded = tf.expand_dims(traj_slice_states[-1,:], axis=0)
-                    #traj_slice_val_end = tf.squeeze(critic_net(traj_slice_end_state_expanded, training=False)).numpy()
-
-                    # Compute advantages and returns using the rewards and value estimates
-                    traj_slice_returns, traj_slice_advantages = compute_advantages_and_returns(indices_array, trajectory_rewards[0,:], trajectory_vals_array, advantage_norm)
-
-                    # Add to minibatch
-                    train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_states
-                    train_minibatch_actions[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_actions
-                    train_minibatch_rewards[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_rewards
-                    train_minibatch_values[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_vals
-                    train_minibatch_returns[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_returns
-                    train_minibatch_advantages[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_advantages
-                    train_minibatch_logits[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_policy_logits
-
-            # Use the minibatch to train the actor and critic
-            print('Actor Training')
-            with tqdm(total=train_policy_iterations, desc='Actor training') as pbar_act:
-                if use_early_stopping:
-                    training_end_step = 1
-                for _ in range(train_policy_iterations):
-                    actor_train_loss, mean_kl = train_actor(observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, target_kl=kl_targ, entropy_coeff=ent_coeff)
-                    actor_losses_iterations.append(actor_train_loss.numpy())
-                    print('Step: ' + str(actor_train_count) + ', actor loss: ' + str(actor_train_loss.numpy()))
-                    actor_train_count += 1
-                    pbar_act.update(1)
-                    if use_early_stopping:
-                        if mean_kl > 1.5 * kl_targ:
-                            # Early Stopping
-                            break
+                    # Generate a trajectory to add to the buffer
+                    if use_buffer:
+                        print('Add a trajectory to the buffer')
+                        if new_reward:
+                            # Assuming the weights of all but last objective are in the state
+                            trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states+len(obj_names)-1, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+                            global_nfe = modified_nfe 
                         else:
-                            training_end_step += 1
-                if use_early_stopping:
-                    actor_end_steps_episodes.append(training_end_step)
+                            trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+                            global_nfe = modified_nfe 
+                        store_into_buffer(buffer=buffer, n_trajs=1, collect_steps=trajectory_collect_steps, trajectory_states=trajectory_states, trajectory_truss_designs=trajectory_truss_des, trajectory_actions=trajectory_actions, trajectory_rewards=trajectory_rewards, trajectory_dones=trajectory_dones, trajectory_policy_logits=trajectory_policy_logits)
 
-            print('Critic Training \n')
-            with tqdm(total=train_value_iterations, desc='Critic training') as pbar_val:
-                for _ in range(train_value_iterations):
-                    critic_train_loss = train_critic(observation_samples=train_minibatch_states, return_samples=train_minibatch_returns)
-                    critic_losses_iterations.append(critic_train_loss.numpy())
-                    print('Step: ' + str(critic_train_count) + ', critic loss: ' + str(critic_train_loss.numpy()))
-                    critic_train_count += 1
-                    pbar_val.update(1)
+                    # Generate/sample trajectories to populate training minibatch
+                    for traj_step in range(episode_training_trajs):
+                        print('Generate/sample trajectories for training')
 
-            critic_loss_steps.append([i for i in range(critic_train_count)])
-            actor_loss_steps.append([i for i in range(actor_train_count)])
-            actor_train_count = 0
-            critic_train_count = 0
+                        if use_buffer:
+                            # Sample trajectories from the buffer
+                            n_stored_trajs = buffer.get_num_trajectories()
 
-            critic_losses_episodes.append(critic_losses_iterations)
-            actor_losses_episodes.append(actor_losses_iterations)
-            critic_losses_episodes_steps.append(critic_loss_steps)
-            actor_losses_episodes_steps.append(actor_loss_steps)
-            
-            pbar.update(1)
+                            # Retrieve a random trajectory slice from the buffer to construct training minibatch 
+                            traj_idx = np.random.randint(low=0, high=n_stored_trajs)
+                            traj_full_obs, traj_full_truss_des, traj_full_acts, traj_full_rs, traj_full_dones, traj_full_logits = buffer.get_trajectory(trajectory_index=traj_idx)
+                            if use_continuous_minibatch:
+                                start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
+                                end_idx = start_idx + minibatch_steps
+                                indices_array = np.arange(start_idx, end_idx)
+                            else:
+                                indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
+                            traj_obs = traj_full_obs[indices_array, :]
+                            traj_truss_des = traj_full_truss_des[indices_array]
+                            traj_acts = traj_full_acts[indices_array, :]
+                            traj_rs = traj_full_rs[indices_array]
+                            traj_dones = traj_full_dones[indices_array]
+                            traj_logits = traj_full_logits[indices_array, :]
+
+                            # Log trajectory into the result logger (last observation not stored)
+                            for step in range(minibatch_steps):
+                                #chosen_act = np.argmax(traj_acts[step, :])
+                                #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_acts[step, :], prev_obs=traj_obs[step, :], reward=traj_rs[step])
+                                #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_acts[step, 0], prev_obs=traj_obs[step, :], reward=traj_rs[step])
+                                result_logger.save_to_logger2(step_number=overall_step_counter, action=traj_acts[step, 0], truss_design=traj_truss_des[step], reward=traj_rs[step])
+                                overall_step_counter += 1
+
+                            # Obtain value estimation from critic for the trajectory observations
+                            #traj_obs_exp = tf.expand_dims(traj_obs, axis=0)
+                            traj_full_vals = critic_net(traj_full_obs, training=False)
+                            traj_full_vals_array = tf.squeeze(traj_full_vals).numpy()
+                            traj_vals_array = traj_full_vals_array[indices_array]
+
+                            # Obtain estimated value for additional observation separately
+                            #traj_objs_end_expanded = tf.expand_dims(traj_obs[-1,:], axis=0)
+                            #traj_val_end = tf.squeeze(critic_net(traj_objs_end_expanded, training=False)).numpy()
+
+                            # Compute advantages and returns using the rewards and value estimates
+                            traj_returns, traj_advantages = compute_advantages_and_returns(indices_array, traj_full_rs, traj_full_vals_array, advantage_norm)
+
+                            # Add to minibatch
+                            train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_obs
+                            train_minibatch_actions[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_acts
+                            train_minibatch_rewards[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_rs
+                            train_minibatch_values[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_vals_array
+                            train_minibatch_returns[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_returns
+                            train_minibatch_advantages[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_advantages
+                            train_minibatch_logits[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_logits    
+                        
+                        else:
+                            # Generate trajectory
+                            if new_reward:
+                                # Assuming the weights of all but last objective are in the state
+                                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states+len(obj_names)-1, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+                                global_nfe = modified_nfe
+                            else:
+                                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+                                global_nfe = modified_nfe
+
+                            # Extract slice from the trajectory (Assumption: continuous trajectory slice is considered instead of random steps in the trajectory)
+                            if use_continuous_minibatch:
+                                start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
+                                end_idx = start_idx + minibatch_steps
+                                indices_array = np.arange(start_idx, end_idx)    
+                            else:
+                                indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
+
+                            traj_slice_states = trajectory_states[0, indices_array, :]
+                            traj_slice_truss_des = trajectory_truss_des[indices_array, :] ## CHECK!
+                            traj_slice_actions = trajectory_actions[0, indices_array, :]
+                            traj_slice_rewards = trajectory_rewards[0, indices_array]
+                            traj_slice_policy_logits = trajectory_policy_logits[0, indices_array, :]
+
+                            # Log trajectory into the result logger
+                            for step in range(minibatch_steps):
+                                #chosen_act = np.argmax(traj_slice_actions[step, :])
+                                #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, :], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
+                                #result_logger.save_to_logger(step_number=overall_step_counter, action=traj_slice_actions[step, 0], prev_obs=traj_slice_states[step, :], reward=traj_slice_rewards[step])
+                                result_logger.save_to_logger2(step_number=overall_step_counter, action=traj_slice_actions[step, 0], truss_design=traj_slice_truss_des[step], reward=traj_slice_rewards[step])
+                                overall_step_counter += 1
+
+                            # Obtain value estimation from critic for the trajectory observations
+                            #trajectory_states_exp = tf.expand_dims(trajectory_states, axis=0)
+                            trajectory_vals = critic_net(trajectory_states, training=False)
+                            trajectory_vals_array = tf.squeeze(trajectory_vals).numpy()
+                            traj_slice_vals = trajectory_vals_array[indices_array]
+
+                            # Obtain estimated value for additional observation separately
+                            #traj_slice_end_state_expanded = tf.expand_dims(traj_slice_states[-1,:], axis=0)
+                            #traj_slice_val_end = tf.squeeze(critic_net(traj_slice_end_state_expanded, training=False)).numpy()
+
+                            # Compute advantages and returns using the rewards and value estimates
+                            traj_slice_returns, traj_slice_advantages = compute_advantages_and_returns(indices_array, trajectory_rewards[0,:], trajectory_vals_array, advantage_norm)
+
+                            # Add to minibatch
+                            train_minibatch_states[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_states
+                            train_minibatch_actions[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_actions
+                            train_minibatch_rewards[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_rewards
+                            train_minibatch_values[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_vals
+                            train_minibatch_returns[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_returns
+                            train_minibatch_advantages[minibatch_steps*traj_step:minibatch_steps*(traj_step+1)] = traj_slice_advantages
+                            train_minibatch_logits[minibatch_steps*traj_step:minibatch_steps*(traj_step+1), :] = traj_slice_policy_logits
+
+                    # Use the minibatch to train the actor and critic
+                    print('Actor Training')
+                    with tqdm(total=train_policy_iterations, desc='Actor training') as pbar_act:
+                        if use_early_stopping:
+                            training_end_step = 1
+                        for _ in range(train_policy_iterations):
+                            actor_train_loss, mean_kl = train_actor(observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, target_kl=kl_targ, entropy_coeff=ent_coeff)
+                            actor_losses_iterations.append(actor_train_loss.numpy())
+                            print('Step: ' + str(actor_train_count) + ', actor loss: ' + str(actor_train_loss.numpy()) + ', mean KL-divergence: ' + str(mean_kl))
+                            actor_train_count += 1
+                            pbar_act.update(1)
+                            if use_early_stopping:
+                                if mean_kl > 1.5 * kl_targ:
+                                    # Early Stopping
+                                    break
+                                else:
+                                    training_end_step += 1
+                        if use_early_stopping:
+                            actor_end_steps_episodes.append(training_end_step)
+
+                    print('Critic Training \n')
+                    with tqdm(total=train_value_iterations, desc='Critic training') as pbar_val:
+                        for _ in range(train_value_iterations):
+                            critic_train_loss = train_critic(observation_samples=train_minibatch_states, return_samples=train_minibatch_returns)
+                            critic_losses_iterations.append(critic_train_loss.numpy())
+                            print('Step: ' + str(critic_train_count) + ', critic loss: ' + str(critic_train_loss.numpy()))
+                            critic_train_count += 1
+                            pbar_val.update(1)
+
+                    critic_loss_steps.append([i for i in range(critic_train_count)])
+                    actor_loss_steps.append([i for i in range(actor_train_count)])
+                    actor_train_count = 0
+                    critic_train_count = 0
+
+                    critic_losses_episodes.append(critic_losses_iterations)
+                    actor_losses_episodes.append(actor_losses_iterations)
+                    critic_losses_episodes_steps.append(critic_loss_steps)
+                    actor_losses_episodes_steps.append(actor_loss_steps)
+                    
+                    pbar.update(1)
+
+                    # Save current trained actor and critic networks at regular intervals
+                    if episode % network_save_intervals == 0:
+                        actor_model_filename = "learned_actor_network_ep" + str(episode)
+                        if artery_prob:
+                            actor_model_filename += "_artery"
+                        else:
+                            actor_model_filename += "_eqstiff"
+                        actor_model_filename += ".h5"
+
+                        actor_net.save(os.path.join(current_save_path, actor_model_filename), save_format='h5')
+
+                        critic_model_filename = "learned_critic_network_ep" + str(episode)
+                        if artery_prob:
+                            critic_model_filename += "_artery"
+                        else:
+                            critic_model_filename += "_eqstiff"
+                        critic_model_filename += ".h5"
+
+                        critic_net.save(os.path.join(current_save_path, critic_model_filename), save_format='h5')
+
+                        if global_nfe >= max_unique_nfe_run:
+                            break
+
+                    break
+
+            except KeyboardInterrupt: # Stop early using keyboard interruption (Ctrl + z) to avoid continuing training which does not improve actor and/or critic learning
+                max_train_episodes = episode
+                break
 
     # Save results to the file
     result_logger.save_to_csv()
 
     # Save trained actor and critic networks
-    actor_model_filename = "learned_actor_Network"
+    actor_model_filename = "learned_actor_network_final"
     if artery_prob:
         actor_model_filename += "_artery"
     else:
@@ -735,7 +813,7 @@ for run_num in range(n_runs):
 
     actor_net.save(os.path.join(current_save_path, actor_model_filename), save_format='h5')
 
-    critic_model_filename = "learned_critic_Network"
+    critic_model_filename = "learned_critic_network_final"
     if artery_prob:
         critic_model_filename += "_artery"
     else:
@@ -829,7 +907,7 @@ if compute_periodic_returns:
         plt.figure()
         returns_current_run = returns_runs['run' + str(run_counter)]
         returns_steps_current_run = returns_steps_runs['run' + str(run_counter)]
-        plt.plot(returns_steps_current_run, returns_current_run, linestyle=linestyles[i], label='run ' + str(run_counter))
+        plt.plot(returns_steps_current_run, returns_current_run)
         plt.ylabel('Return')
         plt.xlabel('Episode #')
         plt.grid()
@@ -909,18 +987,21 @@ critic_loss_3q = []
 
 for step_val in actor_stats_steps:
     actor_loss_runs = np.zeros(n_runs)
-    critic_loss_runs = np.zeros(n_runs)
 
     for i in range(n_runs):
         actor_step_idx = list(actor_combined_train_steps['run ' + str(i)]).index(step_val)
         actor_loss_runs[i] = actor_loss_combined_runs['run ' + str(i)][actor_step_idx]
 
-        critic_step_idx = list(critic_combined_train_steps['run ' + str(i)]).index(step_val)
-        critic_loss_runs[i] = critic_loss_combined_runs['run ' + str(i)][critic_step_idx]
-
     actor_loss_med.append(np.median(actor_loss_runs))
     actor_loss_1q.append(np.percentile(actor_loss_runs, 25))
     actor_loss_3q.append(np.percentile(actor_loss_runs, 75))
+
+for step_val in critic_stats_steps:
+    critic_loss_runs = np.zeros(n_runs)
+
+    for i in range(n_runs):
+        critic_step_idx = list(critic_combined_train_steps['run ' + str(i)]).index(step_val)
+        critic_loss_runs[i] = critic_loss_combined_runs['run ' + str(i)][critic_step_idx]
 
     critic_loss_med.append(np.median(critic_loss_runs))
     critic_loss_1q.append(np.percentile(critic_loss_runs, 25))
@@ -947,3 +1028,6 @@ plt.grid()
 plt.title('Critic training: episodes combined and averaged over runs')
 #plt.show()
 plt.savefig(save_path + "ppo_critic_combined_train.png", dpi=600)
+
+end_time = time.time()
+print("Total time: " + str(end_time-start_time))

@@ -2,18 +2,16 @@
     "Number of runs": 1, 
     
     "Value discount (gamma)": 0.99, 
-    "Number of training episodes": 25, 
+    "Number of training episodes": 1000, 
     "Maximum steps in training episode (for train environment termination)": 100000, 
-    "Maximum steps in evaluation episode (for evaluation environment termination)": 75,
+    "Maximum steps in evaluation episode (for evaluation environment termination)": 100,
     "Number of evaluation episodes": 10,
     
-    "Episode interval for evaluation": 5, 
+    "Episode interval for evaluation": 10, 
     "Initial number of stored trajectories": 100,
     "Number of steps in a collected trajectory": 100,
-    "Number of trajectories used for training per episode": 20,
+    "Number of trajectories used for training per episode": 30,
     "Number of steps in a minibatch": 75,
-
-    "Maximum unique NFE": 10000,
     
     "Compute periodic returns": true,
     "Continuous minibatch": false,
@@ -23,12 +21,11 @@
     "Discrete actions": true,
     "Advantage discount (lambda)": 0.9,
     "Use new problem formulation": true,
-    "Include weights in state": false,
     
-    "Actor network layer units": [200, 200],
-    "Actor network dropout probabilities": [0.10, 0.10],
-    "Critic network layer units": [200, 200],
-    "Critic network dropout probabilities": [0.10, 0.10],
+    "Actor network layer units": [200, 100, 200],
+    "Actor network dropout probabilities": [0.20, 0.10, 0.20],
+    "Critic network layer units": [200, 100, 60],
+    "Critic network dropout probabilities": [0.20, 0.10, 0.05],
     
     "Use clipping loss": true,
     "Clipping ratio threshold": 0.1,
@@ -40,10 +37,10 @@
     "Use early stopping for actor training": true,
     
     "Number of actor training iterations": 30,
-    "Number of critic training iterations": 60,
+    "Number of critic training iterations": 30,
     
     "Initial actor training learning rate": 1e-4,
-    "Initial critic training learning_rate": 2e-4,
+    "Initial critic training learning_rate": 5e-5,
     "Learning rate decay rate": 0.95,
     "Learning rate decay steps (actor)": 1000,
     "Learning rate decay steps (critic)": 1000,

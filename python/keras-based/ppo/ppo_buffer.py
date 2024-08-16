@@ -21,11 +21,13 @@ class Buffer:
         self.n_actions = num_actions
         
         self.observation_buffer = np.zeros((max_buffer_size, max_traj_steps, observation_dimensions), dtype=np.int32)
+        self.truss_design_buffer = []
         self.action_buffer = np.zeros((max_buffer_size, max_traj_steps, num_actions))
         self.reward_buffer = np.zeros((max_buffer_size, max_traj_steps))
         self.done_buffer = np.zeros((max_buffer_size, max_traj_steps), dtype=np.int32)
 
         self.current_trajectory_observations = np.zeros((max_traj_steps, observation_dimensions), dtype=np.int32)
+        self.current_trajectory_truss_designs = []
         self.current_trajectory_actions = np.zeros((max_traj_steps, num_actions))
         self.current_trajectory_rewards = np.zeros(max_traj_steps)
         self.current_trajectory_dones = np.zeros(max_traj_steps, dtype=np.int32)
@@ -43,8 +45,9 @@ class Buffer:
             self.current_trajectory_policy_logits = np.zeros((max_traj_steps, 2 * num_actions), dtype=np.float32)
 
     # Method to store one step in the trajectory 
-    def store_to_trajectory(self, observation, action, reward, done, logits):
+    def store_to_trajectory(self, observation, truss_design, action, reward, done, logits):
         self.current_trajectory_observations[self.current_traj_end_position, :] = observation
+        self.current_trajectory_truss_designs.append(truss_design)
         self.current_trajectory_actions[self.current_traj_end_position, :] = action
         self.current_trajectory_rewards[self.current_traj_end_position] = reward
         self.current_trajectory_policy_logits[self.current_traj_end_position, :] = logits
@@ -54,6 +57,7 @@ class Buffer:
     # Method to end current trajectory and store it to the buffer
     def store_to_buffer(self):
         self.observation_buffer[self.last_trajectory_index,:,:] = self.current_trajectory_observations
+        self.truss_design_buffer.append(self.current_trajectory_truss_designs)
         self.action_buffer[self.last_trajectory_index,:,:] = self.current_trajectory_actions
         self.reward_buffer[self.last_trajectory_index,:] = self.current_trajectory_rewards
         self.done_buffer[self.last_trajectory_index,:] = self.current_trajectory_dones
@@ -68,6 +72,7 @@ class Buffer:
         # Remove earliest trajectory if buffer is full
         if self.num_trajectories == self.max_buffer_size:
             self.observation_buffer[0, :, :] = np.zeros((self.max_trajectory_steps, self.obs_dimensions))
+            self.truss_design_buffer.pop(0)
             self.action_buffer[0, :, :] = np.zeros((self.max_trajectory_steps, self.n_actions))
             self.reward_buffer[0, :] = np.zeros(self.max_trajectory_steps)
             self.done_buffer[0, :] = np.zeros(self.max_trajectory_steps)
@@ -82,6 +87,7 @@ class Buffer:
 
         # Reset current trajectory observations, actions and rewards
         self.current_trajectory_observations = np.zeros((self.max_trajectory_steps, self.obs_dimensions))
+        self.current_trajectory_truss_designs = []
         self.current_trajectory_actions = np.zeros((self.max_trajectory_steps, self.n_actions))
         self.current_trajectory_rewards = np.zeros(self.max_trajectory_steps)
         self.current_trajectory_dones = np.zeros(self.max_trajectory_steps)
@@ -99,6 +105,7 @@ class Buffer:
     # Method to get stats on the chosen trajectory (include last observation to compute delta for the last time step)
     def get_trajectory(self, trajectory_index):
         return self.observation_buffer[trajectory_index, :, :], \
+            self.truss_design_buffer[trajectory_index], \
             self.action_buffer[trajectory_index, :, :], \
             self.reward_buffer[trajectory_index, :], \
             self.done_buffer[trajectory_index, :], \

@@ -5,11 +5,12 @@ Support class for the metamaterial design problems with support methods includin
 @author: roshan94
 """
 import numpy as np
+from TrussDesign import TrussDesign
 from collections import OrderedDict
 import copy
 
 class MetamaterialSupport:
-    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space):
+    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space, include_weights):
 
         # Define class parameters
         self.side_elem_length = sel
@@ -28,6 +29,13 @@ class MetamaterialSupport:
 
         self.new_reward = new_reward
         self.obs_space = obs_space
+
+        self.explored_design_objectives = {}
+        self.explored_design_true_objectives = {}
+        self.explored_design_constraints = {}
+        self.explored_design_heuristics = {}
+
+        self.include_weights = include_weights
 
         self.current_PF_objs = []
         self.current_PF_constrs = []
@@ -180,8 +188,11 @@ class MetamaterialSupport:
 
         # Pass state and action to java operator class
         if self.new_reward:
-            state_design = state['design']
-            state_obj_weights = state['objective weights']
+            if self.include_weights:
+                state_design = state['design']
+                state_obj_weight0 = state['objective weight0']
+            else:
+                state_design = state
         else:
             state_design = state
 
@@ -193,10 +204,13 @@ class MetamaterialSupport:
             self.operations_instance.operate()
             new_state_design = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
             if self.new_reward:
-                new_state = self.obs_space.sample()
-                new_state['design'] = new_state_design
-                new_state['objective weights'] = state_obj_weights
-                #new_state = OrderedDict(('design', new_state_design), ('objective weights', state_obj_weights))
+                if self.include_weights:
+                    new_state = self.obs_space.sample()
+                    new_state['design'] = new_state_design
+                    new_state['objective weight0'] = state_obj_weight0
+                    #new_state = OrderedDict(('design', new_state_design), ('objective weights', state_obj_weights))
+                else:
+                    new_state = new_state_design
             else:
                 new_state = new_state_design
         except:
@@ -216,6 +230,7 @@ class MetamaterialSupport:
         return des_str
 
     ## Method to compute reward based on dominance and diversity of new state compared to current PF (assuming deterministic action outcome from previous state)
+    ## NOTE: NOT USING THIS SINCE THIS REWARD IS NOT MARKOVIAN
     def compute_reward(self, prev_state, state, step):
         r = 0
 
@@ -346,31 +361,115 @@ class MetamaterialSupport:
         return r
     
     # Alternative reward computation solely based on the current state's objectives and constraints
-    def compute_reward2(self, state, step):
-        current_design = state['design']
-        obj_weights = state['objective weights']
-        obj_weights_normalized = np.divide(obj_weights, np.sum(obj_weights))
+    def compute_reward2(self, prev_state, state, nfe_val, start_of_traj):
+
+        if self.include_weights:
+            prev_design = prev_state['design']
+            prev_obj_weight0 = prev_state['objective weight0'][0]
+        else:
+            prev_design = prev_state
+        
+        if self.include_weights:
+            current_design = state['design']
+            obj_weight0 = state['objective weight0'][0]
+            current_truss_des = TrussDesign(design_array=current_design, weight=obj_weight0)
+        else:
+            current_design = state
+            current_truss_des = TrussDesign(design_array=current_design, weight=0.0)
+
+        #obj_weights_normalized = np.divide(obj_weights, np.sum(obj_weights))
+        obj_weights = [obj_weight0, (1.0 - obj_weight0)]
+
+        ## Objective weights are same for both states (weights are changed only when the environment is reset)
+
         r = 0
 
+        # Evaluate previous design
+        prev_des_bitstring = self.get_bitstring(prev_design)
+        if not prev_des_bitstring in list(self.explored_design_objectives.keys()):
+            if start_of_traj: # Previous design is not saved if start of trajectory, new design now is previous design in the next step of the trajectory
+                if self.include_weights:
+                    prev_truss_des = TrussDesign(design_array=prev_design, weight=prev_obj_weight0)
+                else:
+                    prev_truss_des = TrussDesign(design_array=prev_design, weight=-1)
+            else:
+                prev_truss_des = None
+
+            prev_objs, prev_constrs, prev_heurs, prev_true_objs = self.evaluate_design(prev_design) # objs are normalized with no constraint penalties added
+            self.explored_design_true_objectives[prev_des_bitstring] = prev_true_objs
+            self.explored_design_objectives[prev_des_bitstring] = prev_objs
+            self.explored_design_constraints[prev_des_bitstring] = prev_constrs
+            self.explored_design_heuristics[prev_des_bitstring] = prev_heurs
+            nfe_val += 1
+            prev_truss_des.set_objs(prev_true_objs)
+            prev_truss_des.set_constr_vals(prev_constrs)
+            prev_truss_des.set_heur_vals(prev_heurs)
+            prev_truss_des.set_nfe(nfe_val)
+        else:
+            if start_of_traj:
+                if self.include_weights:
+                    prev_truss_des = TrussDesign(design_array=prev_design, weight=prev_obj_weight0) 
+                else:
+                    prev_truss_des = TrussDesign(design_array=prev_design, weight=-1) 
+            else:
+                prev_truss_des = None
+
+            prev_objs = self.explored_design_objectives[prev_des_bitstring]
+            prev_true_objs = self.explored_design_true_objectives[prev_des_bitstring]
+            prev_constrs = self.explored_design_constraints[prev_des_bitstring]
+            prev_heurs = self.explored_design_heuristics[prev_des_bitstring]
+
         # Evaluate current design
-        objs, constrs, heurs, true_objs = self.evaluate_design(current_design) # objs are normalized with no constraint penalties added
+        new_des_bitstring = self.get_bitstring(current_design)
+        if not new_des_bitstring in list(self.explored_design_objectives.keys()):
+            objs, constrs, heurs, true_objs = self.evaluate_design(current_design) # objs are normalized with no constraint penalties added
+            self.explored_design_objectives[new_des_bitstring] = objs
+            self.explored_design_constraints[new_des_bitstring] = constrs
+            self.explored_design_heuristics[new_des_bitstring] = heurs
+            self.explored_design_true_objectives[new_des_bitstring] = true_objs
+            nfe_val += 1
+            current_truss_des.set_objs(true_objs)
+            current_truss_des.set_constr_vals(constrs)
+            current_truss_des.set_heur_vals(heurs)
+        else:
+            objs = self.explored_design_objectives[new_des_bitstring]
+            constrs = self.explored_design_constraints[new_des_bitstring]
+            heurs = self.explored_design_heuristics[new_des_bitstring] 
+            true_objs = self.explored_design_true_objectives[new_des_bitstring]
+            current_truss_des.set_objs(true_objs)
+            current_truss_des.set_constr_vals(constrs)
+            current_truss_des.set_heur_vals(heurs)
+
+        current_truss_des.set_nfe(nfe_val)
 
         # High stiffness ratio constraint violations reduced to be the same magnitude as other violations (generally stiffness ratio violations for designs that cannot be evaluated by the model is 999)
         constrs_array = np.array(constrs)
         constrs_array[constrs_array >= 5] = 5
         constrs = list(constrs_array)
 
-        for obj, weight, max_obj in zip(objs, obj_weights_normalized, self.obj_max):
-            if max_obj:
-                r += weight*obj
-            else:
-                r += -weight*obj
+        # If objectives are to be maximized, reverse sign of objectives (since self.dominates() assumes objectives are to be minimized)
+        prev_objs = [-prev_objs[i] if self.obj_max[i] else prev_objs[i] for i in range(len(prev_objs))]
+        objs = [-objs[i] if self.obj_max[i] else objs[i] for i in range(len(objs))]
 
-        r -= np.mean(constrs)
+        ## New formulation
+        dominates, non_dominating = self.dominates(objs, constrs, [prev_objs], [prev_constrs])
+        if dominates:
+            r = 1
+        elif non_dominating:
+            r = 0
+        else:
+            r = -1
 
-        r /= (step+1)
+        ## Old formulation
+        # for obj, weight, max_obj in zip(objs, obj_weights, self.obj_max):
+        #     if max_obj:
+        #         r += weight*obj
+        #     else:
+        #         r += -weight*obj
 
-        return r
+        # r -= np.mean(constrs)
+
+        return r, nfe_val, prev_truss_des, current_truss_des
 
     # Method to compute the crowding distance for each design in the objectives list
     def compute_crowding_distances(self, objs_list):
