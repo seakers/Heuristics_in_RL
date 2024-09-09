@@ -8,7 +8,7 @@ import csv
 import numpy as np
 
 class ResultSaver:
-    def __init__(self, save_path, operations_instance, obj_names, constr_names, heur_names, new_reward, include_weights):
+    def __init__(self, save_path, operations_instance, obj_names, constr_names, heur_names, new_reward, include_weights, c_target_delta):
         
         # Define class parameters
         self.save_path = save_path # must include {filename}.csv
@@ -18,6 +18,7 @@ class ResultSaver:
         self.heuristic_names = heur_names
         self.new_reward = new_reward
         self.include_weights = include_weights
+        self.target_stiffrat_delta = c_target_delta
 
         self.explored_design_objectives = {}
         self.explored_design_constraints = {}
@@ -27,6 +28,7 @@ class ResultSaver:
     def save_to_logger2(self, step_number, action, truss_design, reward):
         current_design = truss_design.get_design()
         current_state = "".join([str(dec) for dec in current_design])
+        step_info = {}
         step_info['Observation'] =  current_state # bitstring or array as string
 
         if self.new_reward:
@@ -36,7 +38,6 @@ class ResultSaver:
                 step_info['Objective Weight 1'] = 1 - truss_design.get_weight()
 
         # Save step results with step number as key
-        step_info = {}
         step_info['Step Number'] = step_number
         step_info['Action'] = action
         step_info['Reward'] = reward
@@ -117,9 +118,10 @@ class ResultSaver:
 
         # Initialize csv filewriter and write to file using dictwriter
         if self.new_reward:
-            field_names = ['Step Number', 'Observation']
-            for i in range(len(self.objective_names)):
-                field_names.append('Objective Weight ' + str(i))
+            field_names = ['Step Number', 'NFE', 'Observation']
+            if self.include_weights:
+                for i in range(len(self.objective_names)):
+                    field_names.append('Objective Weight ' + str(i))
             field_names.append('Action')
             field_names.append('Reward')
         else:
@@ -144,6 +146,12 @@ class ResultSaver:
         # Obtain objectives and constraints
         objs = list(self.operations_instance.getObjectives())
         constrs = list(self.operations_instance.getConstraints())
+
+        # Modify stiffness ratio constraint based on target delta
+        stiffrat_index = self.constraint_names.index('StiffnessRatioViolation')
+        if np.abs(constrs[stiffrat_index]) <= self.target_stiffrat_delta:
+            constrs[stiffrat_index] = 0
+
         heurs = list(self.operations_instance.getHeuristics())
 
         true_objs = list(self.operations_instance.getTrueObjectives())

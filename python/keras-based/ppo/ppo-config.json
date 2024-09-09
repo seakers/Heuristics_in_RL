@@ -1,19 +1,19 @@
 {
-    "Number of runs": 1, 
+    "Number of runs": 5, 
     
     "Value discount (gamma)": 0.99, 
-    "Number of training episodes": 25, 
-    "Maximum steps in training episode (for train environment termination)": 100000, 
-    "Maximum steps in evaluation episode (for evaluation environment termination)": 75,
+    "Number of training episodes": 500, 
+    "Maximum steps in training episode (for train environment termination)": 1000000, 
+    "Maximum steps in evaluation episode (for evaluation environment termination)": 100,
     "Number of evaluation episodes": 10,
     
-    "Episode interval for evaluation": 5, 
+    "Episode interval for evaluation": 10, 
     "Initial number of stored trajectories": 100,
     "Number of steps in a collected trajectory": 100,
-    "Number of trajectories used for training per episode": 20,
+    "Number of trajectories used for training per episode": 30,
     "Number of steps in a minibatch": 75,
 
-    "Maximum unique NFE": 10000,
+    "Maximum unique NFE": 6000,
     
     "Compute periodic returns": true,
     "Continuous minibatch": false,

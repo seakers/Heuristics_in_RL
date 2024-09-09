@@ -5,11 +5,11 @@ Reference: https://keras.io/examples/rl/ppo_cartpole/
 
 Changes to make:
 1. Instead of sampling from buffer for each training iteration, either 
-    a. generate a new trajectory and sample minibatch for training in each iteration or 
+    a. generate a new trajectory and sample minibatch for training in each iteration (- Done) or 
     b. empty buffer at the end of each iteration and repopulate with new trajectories after each iteration
-2. Update the weights of the actor and critic after each iteration if not already done (check if KL-divergence(pi_old, pi_new) = 0 at the beginning of training in each iteration)
+2. Update the weights of the actor and critic after each iteration if not already done (check if KL-divergence(pi_old, pi_new) = 0 at the beginning of training in each iteration) (- Done)
 3. Instead of sampling minibatch trajectories from each generated trajectory, sample transitions from the combined set of trajectories 
-(although difference in performance is worth investigating) - Done
+(although difference in performance is worth investigating) (- Done)
 
 @author: roshan94
 """
@@ -54,7 +54,7 @@ data_ppo = json.load(f_ppo)
 n_runs = data_ppo["Number of runs"]
 
 gamma = data_ppo["Value discount (gamma)"] # discount factor
-max_train_episodes = data_ppo["Number of training episodes"] # number of training episodes
+original_max_train_episodes = data_ppo["Number of training episodes"] # number of training episodes
 
 max_steps = data_ppo["Maximum steps in training episode (for train environment termination)"] # no termination in training environment
 max_eval_steps = data_ppo["Maximum steps in evaluation episode (for evaluation environment termination)"] # termination in evaluation environment
@@ -121,7 +121,7 @@ network_save_intervals = data_ppo["Episode interval to save actor and critic net
 
 save_path = data_ppo["Savepath"]
 
-if network_save_intervals > max_train_episodes:
+if network_save_intervals > original_max_train_episodes:
     print("Episode interval to save networks is greater than number of training episodes")
     sys.exit(0)
 
@@ -161,6 +161,8 @@ c_target = data_prob["Target stiffness ratio"]
 # if artery_prob:
 #     c_target = 0.421
 
+feas_c_target_delta = data_prob["Feasible stiffness delta"] # delta about target stiffness ratio defining satisfying designs
+
 render_steps = data_prob["Render steps"]
 
 ## find number of states and actions based on sidenum
@@ -183,9 +185,12 @@ def compute_avg_return(environment, actor, num_steps=100, num_episodes=10):
 
         start_obs = environment.reset()
         if new_reward:
-            #start_obs_list = sum(start_obs.values(), [])
-            start_obs_list = list(chain(*start_obs.values()))
-            state = np.array(start_obs_list)
+            if include_weights:
+                #start_obs_list = sum(start_obs.values(), [])
+                start_obs_list = list(chain(*start_obs.values()))
+                state = np.array(start_obs_list)
+            else:
+                state = start_obs
         else:
             state = start_obs
 
@@ -203,16 +208,22 @@ def compute_avg_return(environment, actor, num_steps=100, num_episodes=10):
             action_probs = tf.nn.softmax(action_logits)
             action = tf.argmax(tf.squeeze(action_probs)).numpy()
 
-            next_obs, reward, done, _ = environment.step(action)
+            traj_start = False
+            if eval_step == 0:
+                traj_start = True
+            next_obs, reward, done, kw_args = environment.step(action=action, nfe_val=eval_step, traj_start=traj_start)
             episode_return += (gamma**eval_step)*reward
 
             if done:
                 break
             else:
                 if new_reward:
-                    #next_obs_list = sum(next_obs.values(), [])
-                    next_obs_list = list(chain(*next_obs.values()))
-                    state = np.array(next_obs_list)
+                    if include_weights:
+                        #next_obs_list = sum(next_obs.values(), [])
+                        next_obs_list = list(chain(*next_obs.values()))
+                        state = np.array(next_obs_list)
+                    else:
+                        state = next_obs
                 else:
                     state = next_obs
                 eval_step += 1
@@ -273,12 +284,13 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
 
     # Genarating and storing trjectories (buffer used to compute advantages and values)
     for traj_count in range(n_trajs):
-        print('Generating trajectory ' + str(traj_count))
+        print('Generating trajectory')
 
         observation = train_env.reset()
         if new_reward:
-            #observation = sum(observation.values(), [])
-            observation = list(chain(*observation.values()))
+            if include_weights:
+                #observation = sum(observation.values(), [])
+                observation = list(chain(*observation.values()))
         state = np.array(observation)    
         
         current_traj_des = []
@@ -299,8 +311,10 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
 
             next_obs, reward, done, add_arg = train_env.step(action, current_nfe, traj_start)
             if new_reward:
-                #next_obs = sum(next_obs.values(), [])
-                next_obs = list(chain(*next_obs.values()))
+                if include_weights:
+                    #next_obs = sum(next_obs.values(), [])
+                    next_obs = list(chain(*next_obs.values()))
+
                 current_nfe = add_arg['Current NFE']
                 current_truss_des = add_arg['Current truss design']
                 new_truss_des = add_arg['New truss design']
@@ -309,9 +323,10 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
             traj_dones[traj_count, step] = done
 
             if new_reward:
-                if not current_truss_des == None:
+                if traj_start: # To match truss designs with the saved states, initial current_truss_des is saved and final new_truss_des is skipped
                     current_traj_des.append(current_truss_des)
-                current_traj_des.append(new_truss_des)
+                if step < (collect_steps-1):
+                    current_traj_des.append(new_truss_des)
             
             #buffer.store_to_trajectory(state, action, reward, logits)
 
@@ -344,8 +359,12 @@ def sample_action(actor, observation):
     observation_tensor = tf.expand_dims(observation_tensor, axis=0)
     logits = actor(observation_tensor, training=False)
     action = tf.squeeze(tf.random.categorical(tf.nn.log_softmax(logits), 1, seed=seed), axis=1).numpy()[0]
-    if action >= (len(observation) - (len(obj_names)-1)): # Assuming the weights of all but last objective are in the state
-        print('Invalid action')
+    if new_reward and include_weights:
+        if action >= (len(observation) - (len(obj_names)-1)): # Assuming the weights of all but last objective are in the state
+            print('Invalid action')
+    else:
+        if action >= len(observation): # Assuming the weights of all but last objective are in the state
+            print('Invalid action')
     logits_array = logits.numpy()[0]
     return logits_array, action
 
@@ -474,7 +493,6 @@ def train_critic(observation_samples, return_samples):
     return value_loss
 
 ########################################## Operation ##########################################
-global_nfe = 0
 
 if compute_periodic_returns:
     returns_runs = {}
@@ -487,9 +505,14 @@ actor_end_steps_runs = {}
 critic_loss_steps_runs = {}
 actor_loss_steps_runs = {}
 
+n_train_episodes_runs = np.zeros(n_runs)
+
 for run_num in range(n_runs):
 
     print('Run ' + str(run_num))
+
+    global_nfe = 0
+    max_train_episodes = original_max_train_episodes
 
     current_save_path = save_path + "run " + str(run_num) 
 
@@ -510,7 +533,7 @@ for run_num in range(n_runs):
     file_name += str(run_num) + ".csv"
 
     ## Initialize actor and critic
-    if new_reward:
+    if new_reward and include_weights:
         actor_net = create_actor(num_states=n_states+len(obj_names)-1, hidden_layer_params=actor_fc_layer_params, hidden_layer_dropout_params=actor_dropout_layer_params, num_action_vals=n_action_vals, num_actions=n_actions) # Assuming the weights of all but last objective are in the state
         critic_net = create_critic(num_states=n_states+len(obj_names)-1, hidden_layer_params=critic_fc_layer_params, hidden_layer_dropout_params=critic_dropout_layer_params) # Assuming the weights of all but last objective are in the state
     else:
@@ -524,14 +547,14 @@ for run_num in range(n_runs):
     value_optimizer = keras.optimizers.RMSprop(learning_rate=value_lr_schedule, rho=rho, momentum=momentum)
 
     # Initialize result saver
-    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights)
+    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, c_target_delta=feas_c_target_delta)
 
     if artery_prob:
         train_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
         eval_env = ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps)
     else:
-        train_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights)
-        eval_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights)
+        train_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights)
+        eval_env = EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, max_steps=max_eval_steps, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights)
 
     observation = train_env.reset()
     episode_return, episode_length = 0,0
@@ -543,8 +566,12 @@ for run_num in range(n_runs):
 
         # Generate the initial set of trajectories to add to buffer
         if new_reward:
-            # Assuming the weights of all but last objective are in the state
-            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits, init_trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states+len(obj_names)-1, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+            if include_weights:
+                # Assuming the weights of all but last objective are in the state
+                num_states = n_states+len(obj_names)-1
+            else:
+                num_states = n_states
+            init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits, init_trajectory_truss_des, modified_nfe = generate_trajectories(num_states=num_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
             global_nfe = modified_nfe
         else:
             init_trajectory_states, init_trajectory_actions, init_trajectory_rewards, init_trajectory_dones, init_trajectory_policy_logits, init_trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=initial_collect_trajs, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
@@ -572,12 +599,13 @@ for run_num in range(n_runs):
     critic_train_count = 0
     overall_step_counter = 0 # used for result logger
 
-    with tqdm(total=max_train_episodes, desc='Episode') as pbar:
+    try:
+        while True:
+            with tqdm(total=max_train_episodes, desc='Episode') as pbar:
 
-        for episode in range(max_train_episodes):
+                for episode in range(max_train_episodes):
 
-            try:
-                while True:
+                    #stop = False
                     critic_losses_iterations = []
                     actor_losses_iterations = []
 
@@ -596,8 +624,11 @@ for run_num in range(n_runs):
 
                     # Predefine arrays for states, actions, rewards, values, advantages, returns and logits for the training minibatch
                     if new_reward:
-                        # Assuming the weights of all but last objective are in the state
-                        train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states+len(obj_names)-1), dtype=np.float32)
+                        if include_weights:
+                            # Assuming the weights of all but last objective are in the state
+                            train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states+len(obj_names)-1), dtype=np.float32)
+                        else:
+                            train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states), dtype=np.int32)
                     else:
                         train_minibatch_states = np.zeros((episode_training_trajs*minibatch_steps, n_states), dtype=np.int32)
                     train_minibatch_actions = np.zeros((episode_training_trajs*minibatch_steps, n_actions))
@@ -614,8 +645,12 @@ for run_num in range(n_runs):
                     if use_buffer:
                         print('Add a trajectory to the buffer')
                         if new_reward:
-                            # Assuming the weights of all but last objective are in the state
-                            trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states+len(obj_names)-1, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+                            if include_weights:
+                                # Assuming the weights of all but last objective are in the state
+                                num_states = n_states+len(obj_names)-1
+                            else:
+                                num_states = n_states
+                            trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=num_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
                             global_nfe = modified_nfe 
                         else:
                             trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
@@ -623,8 +658,8 @@ for run_num in range(n_runs):
                         store_into_buffer(buffer=buffer, n_trajs=1, collect_steps=trajectory_collect_steps, trajectory_states=trajectory_states, trajectory_truss_designs=trajectory_truss_des, trajectory_actions=trajectory_actions, trajectory_rewards=trajectory_rewards, trajectory_dones=trajectory_dones, trajectory_policy_logits=trajectory_policy_logits)
 
                     # Generate/sample trajectories to populate training minibatch
+                    print('Generate/sample trajectories for training')
                     for traj_step in range(episode_training_trajs):
-                        print('Generate/sample trajectories for training')
 
                         if use_buffer:
                             # Sample trajectories from the buffer
@@ -679,8 +714,12 @@ for run_num in range(n_runs):
                         else:
                             # Generate trajectory
                             if new_reward:
-                                # Assuming the weights of all but last objective are in the state
-                                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states+len(obj_names)-1, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
+                                if include_weights:
+                                    # Assuming the weights of all but last objective are in the state
+                                    num_states = n_states+len(obj_names)-1
+                                else:
+                                    num_states = n_states
+                                trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=num_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
                                 global_nfe = modified_nfe
                             else:
                                 trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
@@ -695,7 +734,7 @@ for run_num in range(n_runs):
                                 indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
 
                             traj_slice_states = trajectory_states[0, indices_array, :]
-                            traj_slice_truss_des = trajectory_truss_des[indices_array, :] ## CHECK!
+                            traj_slice_truss_des = np.array(trajectory_truss_des)[0, indices_array] 
                             traj_slice_actions = trajectory_actions[0, indices_array, :]
                             traj_slice_rewards = trajectory_rewards[0, indices_array]
                             traj_slice_policy_logits = trajectory_policy_logits[0, indices_array, :]
@@ -791,14 +830,18 @@ for run_num in range(n_runs):
 
                         critic_net.save(os.path.join(current_save_path, critic_model_filename), save_format='h5')
 
-                        if global_nfe >= max_unique_nfe_run:
-                            break
+                    if global_nfe >= max_unique_nfe_run:
+                        #stop = True
+                        n_train_episodes_runs[run_num] = episode+1 # in case max_unique_nfe_run is reached and the run ends prematurely, otherwise max_train_episodes stays the same
+                        break
+                    else:
+                        print('Global NFE: ' + str(global_nfe))
 
-                    break
+            break
 
-            except KeyboardInterrupt: # Stop early using keyboard interruption (Ctrl + z) to avoid continuing training which does not improve actor and/or critic learning
-                max_train_episodes = episode
-                break
+    except KeyboardInterrupt: # Stop early using keyboard interruption (Ctrl + z) to avoid continuing training which does not improve actor and/or critic learning
+        n_train_episodes_runs[run_num] = episode+1
+        break
 
     # Save results to the file
     result_logger.save_to_csv()
@@ -844,14 +887,14 @@ for i in range(n_runs):
     train_steps_current_run = critic_loss_steps_runs['run' + str(i)]
     episode_counter = 0
     figure_counter = 0
-    while episode_counter < max_train_episodes:
+    while episode_counter < n_train_episodes_runs[i]: # NOTE: Edit to use different_max_train_episodes for each run
         plt.figure()
         for k in range(n_episodes_per_fig):
             critic_losses_episode = critic_losses_current_run[episode_counter]
             steps = train_steps_current_run[episode_counter][0]
             plt.plot(steps, critic_losses_episode, linestyle=linestyles[k], label='Ep. ' + str(episode_counter+1))
             episode_counter += 1
-            if episode_counter == max_train_episodes:
+            if episode_counter == n_train_episodes_runs[i]:
                 break
         plt.ylabel('Critic loss')
         plt.xlabel('Evaluation Step #')
@@ -869,14 +912,14 @@ for i in range(n_runs):
     train_steps_current_run = actor_loss_steps_runs['run' + str(i)]
     episode_counter = 0
     figure_counter = 0
-    while episode_counter < max_train_episodes:
+    while episode_counter < n_train_episodes_runs[i]:
         plt.figure()
         for k in range(n_episodes_per_fig):
             losses_episode = actor_losses_current_run[episode_counter]
             loss_steps = train_steps_current_run[episode_counter][0]
             plt.plot(loss_steps, losses_episode, linestyle=linestyles[k], label='Ep. ' + str(episode_counter+1))
             episode_counter += 1
-            if episode_counter == max_train_episodes:
+            if episode_counter == n_train_episodes_runs[i]:
                 break
         plt.ylabel('Loss')
         plt.xlabel('Iteration #')
@@ -891,7 +934,7 @@ if use_early_stopping:
     for i in range(n_runs):
         plt.figure()
         actor_end_steps_current_run = actor_end_steps_runs['run' + str(i)]
-        actor_episode_step_numbers = np.arange(max_train_episodes)
+        actor_episode_step_numbers = np.arange(n_train_episodes_runs[i])
         plt.plot(actor_episode_step_numbers, actor_end_steps_current_run)
         plt.ylabel('Actor training end step')
         plt.xlabel('Episode #')
@@ -917,12 +960,14 @@ if compute_periodic_returns:
         plt.savefig(save_path + "run " + str(run_counter) + "\\" + "ppo_fig_agent_return.png", dpi=600)
         run_counter += 1
 
-# Plot combined actor and critic training
+# Plot combined actor and critic training (TODO: Use the maximum number of training episodes across all runs, pad the losses for the smaller runs accordingly)
 actor_loss_combined_runs = {}
 critic_loss_combined_runs = {}
 
 actor_combined_train_steps = {}
 critic_combined_train_steps = {}
+
+max_train_episode_allruns = np.max(n_train_episodes_runs)
 
 for i in range(n_runs):
     critic_losses_current_run = critic_losses_runs['run' + str(i)]
@@ -934,7 +979,7 @@ for i in range(n_runs):
     # Approach 1: Combine losses for each episode into a single list while filling gaps for early stopped iterations (conducive for statistics)
     critic_loss_combined_current_run = []
     actor_loss_combined_current_run = []
-    for j in range(max_train_episodes):
+    for j in range(int(n_train_episodes_runs[i])):
         critic_loss_combined_current_run.extend(critic_losses_current_run[j]) # critic training is never early stopped
         
         actor_loss_current_episode = actor_losses_current_run[j]
@@ -943,23 +988,35 @@ for i in range(n_runs):
             for k in range(train_policy_iterations - len(actor_loss_current_episode)):
                 actor_loss_combined_current_run.append(actor_loss_current_episode[-1]) # extend list to match the number of policy training iterations by copying the last policy loss
 
-    actor_train_steps_combined_current_run = np.arange(max_train_episodes*train_policy_iterations)
-    critic_train_steps_combined_current_run = np.arange(max_train_episodes*train_value_iterations)
+    if n_train_episodes_runs[i] < max_train_episode_allruns: # extend losses array to match the maximum number of training episodes across all runs
+        for j2 in range(int(max_train_episode_allruns - n_train_episodes_runs[i])):
+            current_episode_actor_losses = list(np.multiply(actor_loss_combined_current_run[-1], np.ones(train_policy_iterations)))
+            actor_loss_combined_current_run.extend(current_episode_actor_losses)
 
-    # # Approach 2: Combine losses for each episode into a single list without filling gaps
+            current_episode_critic_losses = list(np.multiply(critic_loss_combined_current_run[-1], np.ones(train_value_iterations)))
+            critic_loss_combined_current_run.extend(current_episode_critic_losses)
+
+
+    #actor_train_steps_combined_current_run = np.arange(n_train_episodes_runs[i]*train_policy_iterations)
+    #critic_train_steps_combined_current_run = np.arange(n_train_episodes_runs[i]*train_value_iterations)
+
+    actor_train_steps_combined_current_run = np.arange(max_train_episode_allruns*train_policy_iterations)
+    critic_train_steps_combined_current_run = np.arange(max_train_episode_allruns*train_value_iterations)
+
+    # # Approach 2: Combine losses for each episode into a single list without filling gaps 
     # critic_loss_combined_current_run = list(chain(*critic_losses_current_run.values()))
     # actor_loss_combined_current_run = list(chain(*actor_losses_current_run.values()))
 
-    # # Combine train steps for actor and critic into a single list
+    # # Combine train steps for actor and critic into a single list 
     # current_episode_count = 0
     # critic_train_steps_combined_current_run = []
-    # while current_episode_count < max_train_episodes:
+    # while current_episode_count < max_train_episodes_runs[i]:
     #     critic_train_steps_combined_current_run.extend(np.add(critic_train_steps_current_run[current_episode_count], train_value_iterations*current_episode_count))
     #     current_episode_count += 1
 
     # actor_train_steps_combined_current_run = []
     # current_end_step = 0
-    # for j in range(max_train_episodes):
+    # for j in range(max_train_episodes_runs[i]):
     #     actor_train_steps_episode = actor_train_steps_current_run[j]
     #     for j2 in range(len(actor_train_steps_episode)):
     #         actor_train_steps_combined_current_run.append(actor_train_steps_episode[j2] + (current_end_step + 1))
@@ -971,11 +1028,11 @@ for i in range(n_runs):
     actor_combined_train_steps['run ' + str(i)] = actor_train_steps_combined_current_run
     critic_combined_train_steps['run ' + str(i)] = critic_train_steps_combined_current_run
 
-# Compute statistics 
+# Compute statistics (TODO: Use the maximum number of training epoisodes across all runs)
 n_stats_interval = 5
 
-actor_stats_steps = np.arange(max_train_episodes*train_policy_iterations, step=n_stats_interval)
-critic_stats_steps = np.arange(max_train_episodes*train_value_iterations, step=n_stats_interval)
+actor_stats_steps = np.arange(max_train_episode_allruns*train_policy_iterations, step=n_stats_interval)
+critic_stats_steps = np.arange(max_train_episode_allruns*train_value_iterations, step=n_stats_interval)
 
 actor_loss_med = []
 actor_loss_1q = []

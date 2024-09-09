@@ -17,6 +17,7 @@
 
     "Constraint names": ["ConnectivityViolation","StiffnessRatioViolation"],
     "Target stiffness ratio": 1,
+    "Feasible stiffness delta": 0.01,
         
     "Render steps": false
 }

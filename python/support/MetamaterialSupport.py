@@ -5,12 +5,12 @@ Support class for the metamaterial design problems with support methods includin
 @author: roshan94
 """
 import numpy as np
-from TrussDesign import TrussDesign
+from support.TrussDesign import TrussDesign
 from collections import OrderedDict
 import copy
 
 class MetamaterialSupport:
-    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space, include_weights):
+    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space, include_weights):
 
         # Define class parameters
         self.side_elem_length = sel
@@ -18,6 +18,7 @@ class MetamaterialSupport:
         self.radius = rad
         self.Youngs_modulus = E_mod
         self.target_stiffrat = c_target
+        self.target_stiffrat_delta = c_target_delta
         self.heurs_used = heurs_used
         self.nuc_fac = nuc_fac
 
@@ -372,15 +373,14 @@ class MetamaterialSupport:
         if self.include_weights:
             current_design = state['design']
             obj_weight0 = state['objective weight0'][0]
+            ## Objective weights are same for old and new states (weights are changed only when the environment is reset)
             current_truss_des = TrussDesign(design_array=current_design, weight=obj_weight0)
+
+            #obj_weights_normalized = np.divide(obj_weights, np.sum(obj_weights))
+            obj_weights = [obj_weight0, (1.0 - obj_weight0)]
         else:
             current_design = state
             current_truss_des = TrussDesign(design_array=current_design, weight=0.0)
-
-        #obj_weights_normalized = np.divide(obj_weights, np.sum(obj_weights))
-        obj_weights = [obj_weight0, (1.0 - obj_weight0)]
-
-        ## Objective weights are same for both states (weights are changed only when the environment is reset)
 
         r = 0
 
@@ -447,27 +447,32 @@ class MetamaterialSupport:
         constrs_array[constrs_array >= 5] = 5
         constrs = list(constrs_array)
 
+        prev_constrs_array = np.array(prev_constrs)
+        prev_constrs_array[prev_constrs_array >= 5] = 5
+        prev_constrs = list(prev_constrs_array)
+
         # If objectives are to be maximized, reverse sign of objectives (since self.dominates() assumes objectives are to be minimized)
         prev_objs = [-prev_objs[i] if self.obj_max[i] else prev_objs[i] for i in range(len(prev_objs))]
         objs = [-objs[i] if self.obj_max[i] else objs[i] for i in range(len(objs))]
 
-        ## New formulation
-        dominates, non_dominating = self.dominates(objs, constrs, [prev_objs], [prev_constrs])
-        if dominates:
-            r = 1
-        elif non_dominating:
-            r = 0
+        if self.include_weights:
+            ## Old formulation
+            for obj, weight, max_obj in zip(objs, obj_weights, self.obj_max):
+                if max_obj:
+                    r += weight*obj
+                else:
+                    r += -weight*obj
+
+            r -= np.mean(constrs)
         else:
-            r = -1
-
-        ## Old formulation
-        # for obj, weight, max_obj in zip(objs, obj_weights, self.obj_max):
-        #     if max_obj:
-        #         r += weight*obj
-        #     else:
-        #         r += -weight*obj
-
-        # r -= np.mean(constrs)
+            ## New formulation
+            dominates, non_dominating = self.dominates(objs, constrs, [prev_objs], [prev_constrs])
+            if dominates:
+                r = 1
+            elif non_dominating:
+                r = 0
+            else:
+                r = -1
 
         return r, nfe_val, prev_truss_des, current_truss_des
 
@@ -540,6 +545,12 @@ class MetamaterialSupport:
         # Obtain objectives and constraints
         objs = list(self.operations_instance.getObjectives())
         constrs = list(self.operations_instance.getConstraints())
+
+        # Modify stiffness ratio constraint based on target delta
+        stiffrat_index = self.constr_names.index('StiffnessRatioViolation')
+        if np.abs(constrs[stiffrat_index]) <= self.target_stiffrat_delta:
+            constrs[stiffrat_index] = 0
+
         heurs = list(self.operations_instance.getHeuristics())
 
         true_objs = list(self.operations_instance.getTrueObjectives())
