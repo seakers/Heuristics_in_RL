@@ -33,7 +33,8 @@ class DataHandler:
                     for key in row.keys():
                         self.columns[key] = [] # Generate empty lists as items for the column name keys
                         #self.line_count += 1
-                if ('NaN' in list(row.values())) and (not ignore_nans):
+                nan_check = ['NaN', 'nan']
+                if (np.any([nan_check[i] in list(row.values()) for i in range(len(nan_check))])) and (not ignore_nans):
                     continue
                 for k,v in row.items(): # Add each row element to corresponding column list
                     if self.isfloat(v):

@@ -85,7 +85,7 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Gradle.Heuristics in RL [build]">
+  <component name="RunManager" selected="Application.GatewayMainClass">
     <configuration name="GatewayMainClass" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="seakers.GatewayMainClass" />
       <module name="heuristicsinrl.main" />

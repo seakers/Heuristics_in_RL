@@ -1,9 +1,9 @@
 {
-    "Number of runs": 5, 
+    "Number of runs": 10, 
     
     "Value discount (gamma)": 0.99, 
-    "Number of training episodes": 500, 
-    "Maximum steps in training episode (for train environment termination)": 1000000, 
+    "Number of training episodes": 1000, 
+    "Maximum steps in training episode (for train environment termination)": 10000000, 
     "Maximum steps in evaluation episode (for evaluation environment termination)": 100,
     "Number of evaluation episodes": 10,
     
@@ -13,7 +13,7 @@
     "Number of trajectories used for training per episode": 30,
     "Number of steps in a minibatch": 75,
 
-    "Maximum unique NFE": 6000,
+    "Maximum unique NFE": 3000000,
     
     "Compute periodic returns": true,
     "Continuous minibatch": false,
@@ -25,10 +25,10 @@
     "Use new problem formulation": true,
     "Include weights in state": false,
     
-    "Actor network layer units": [200, 200],
-    "Actor network dropout probabilities": [0.10, 0.10],
-    "Critic network layer units": [200, 200],
-    "Critic network dropout probabilities": [0.10, 0.10],
+    "Actor network layer units": [200, 300, 200],
+    "Actor network dropout probabilities": [0.10, 0.15, 0.10],
+    "Critic network layer units": [200, 100],
+    "Critic network dropout probabilities": [0.10, 0.05],
     
     "Use clipping loss": true,
     "Clipping ratio threshold": 0.1,
@@ -50,7 +50,7 @@
     "RMSprop optimizer rho": 0.9,
     "RMSprop optimizer momentum": 0.1,
 
-    "Episode interval to save actor and critic networks": 5,
+    "Episode interval to save actor and critic networks": 50,
     
-    "Savepath": "C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\python\\keras-based\\results\\ppo\\"
+    "Savepath": "C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\python\\keras-based\\results\\"
 }

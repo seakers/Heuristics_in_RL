@@ -80,16 +80,17 @@ class EqualStiffnessProblemEnv(gym.Env):
         # Get action members
         self.action_members, member_added = self.metamat_support.obtain_action_members()
 
-        # Render if needed
-        if self.render_steps:
-            self.render(action=action, member_added=member_added)
-
         # Compute Reward Function
         if self.new_reward:
             reward, mod_nfe, current_truss_des, new_truss_des = self.metamat_support.compute_reward2(prev_state=self.current_pos, state=new_pos, nfe_val=nfe_val, start_of_traj=traj_start)
         else:
             reward = self.metamat_support.compute_reward(prev_state=self.current_pos, state=new_pos, step=self.step_number)
+            new_truss_des = None
 
+        # Render if needed
+        if self.render_steps:
+            self.render(action=action, member_added=member_added, new_state=new_pos, new_des=new_truss_des)
+                
         self.current_pos = new_pos
         self.step_number += 1
 
@@ -116,7 +117,7 @@ class EqualStiffnessProblemEnv(gym.Env):
     def get_isdone(self):
         return self.is_done
     
-    def render(self, action, member_added):
+    def render(self, action, member_added, new_state, new_des):
 
         # Create figure
         if self.step_number == 0:
@@ -137,6 +138,13 @@ class EqualStiffnessProblemEnv(gym.Env):
 
         # Get connectivity array for the current design
         design_CA = self.metamat_support.obtain_current_design_CA()
+
+        # Get new design objectives and constraints
+        if self.new_reward:
+            new_objs = new_des.get_objs()
+            new_constrs = new_des.get_constrs()
+        else:
+            new_norm_objs, new_constrs, new_heurs, new_objs = self.metamat_support.evaluate_design(new_state)
 
         # Plot current design members
         for j in range(design_CA.shape[0]): 
@@ -179,7 +187,7 @@ class EqualStiffnessProblemEnv(gym.Env):
 
                 plt.plot([x1,x2], [y1,y2], color='#FF0000') # color - red       
 
-        plt.title('Step number: ' + str(self.step_number))
+        plt.title('Step number: ' + str(self.step_number) + '\n New Design Objectives: ' + str(new_objs) + '\n New Design Constraints: ' + str(new_constrs))
         plt.show(block=False)
         plt.pause(1)
 

@@ -418,6 +418,11 @@ class MetamaterialSupport:
             prev_true_objs = self.explored_design_true_objectives[prev_des_bitstring]
             prev_constrs = self.explored_design_constraints[prev_des_bitstring]
             prev_heurs = self.explored_design_heuristics[prev_des_bitstring]
+            if not prev_truss_des == None:
+                prev_truss_des.set_objs(prev_true_objs)
+                prev_truss_des.set_constr_vals(prev_constrs)
+                prev_truss_des.set_heur_vals(prev_heurs)
+                prev_truss_des.set_nfe(nfe_val)
 
         # Evaluate current design
         new_des_bitstring = self.get_bitstring(current_design)

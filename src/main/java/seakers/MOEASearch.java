@@ -12,6 +12,7 @@ import seakers.vassarexecheur.search.problems.partitioning.PartitioningProblem;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.concurrent.Callable;
 
 public class MOEASearch implements Callable<Algorithm> {
@@ -45,23 +46,32 @@ public class MOEASearch implements Callable<Algorithm> {
 
         Result result = new Result(saveDirectory);
 
+        HashSet<Solution> exploredSolutions = new HashSet<>();
+
         ArrayList<Solution> allSolutions = new ArrayList<>();
 
         long startTime = System.currentTimeMillis();
+        int currentNumberOfFunctionEvaluations = 0;
         algorithm.step();
 
         Population initialPopulation = ((AbstractEvolutionaryAlgorithm) algorithm).getPopulation();
         for (Solution solution : initialPopulation) {
-            solution.setAttribute("NFE", 0);
             allSolutions.add(solution);
+            exploredSolutions.add(solution);
+            solution.setAttribute("NFE", currentNumberOfFunctionEvaluations);
         }
+        currentNumberOfFunctionEvaluations = initialPopulation.size();
 
         while (!algorithm.isTerminated() && (algorithm.getNumberOfEvaluations() < maximumNFE)) {
             algorithm.step();
             Population currentPopulation = ((AbstractEvolutionaryAlgorithm) algorithm).getPopulation();
             for (int i = 1; i < 3; i++) { // Only valid for Epsilon MOEA
                 Solution currentSolution = currentPopulation.get(currentPopulation.size() - i);
-                currentSolution.setAttribute("NFE", algorithm.getNumberOfEvaluations());
+                if (!exploredSolutions.contains(currentSolution)){
+                    currentNumberOfFunctionEvaluations++;
+                    exploredSolutions.add(currentSolution);
+                }
+                currentSolution.setAttribute("NFE", currentNumberOfFunctionEvaluations);
                 allSolutions.add(currentSolution);
             }
 

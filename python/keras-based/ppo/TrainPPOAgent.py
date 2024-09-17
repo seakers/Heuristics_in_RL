@@ -323,7 +323,7 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
             traj_dones[traj_count, step] = done
 
             if new_reward:
-                if traj_start: # To match truss designs with the saved states, initial current_truss_des is saved and final new_truss_des is skipped
+                if not current_truss_des == None: # To match truss designs with the saved states, initial current_truss_des is saved and final new_truss_des is skipped
                     current_traj_des.append(current_truss_des)
                 if step < (collect_steps-1):
                     current_traj_des.append(new_truss_des)
