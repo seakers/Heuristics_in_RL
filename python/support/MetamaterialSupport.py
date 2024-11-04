@@ -183,6 +183,76 @@ class MetamaterialSupport:
                     action_members.append(member)
 
         return action_members, member_addition
+    
+    ## Method to assign current state based on the One Decision Environments
+    def set_current_design(self, current_state):
+        if self.new_reward:
+            if self.include_weights:
+                state_decisions = current_state['design']
+                #state_obj_weight0 = cstate['objective weight0']
+            else:
+                state_decisions = current_state
+        else:
+            state_decisions = current_state
+
+        state_design = np.zeros(len(state_decisions), dtype=int)
+        for i in range(len(state_decisions)):
+            if not state_decisions[i] == -1:
+                state_design[i]
+            else:
+                break
+
+        self.operations_instance.setCurrentDesign(state_design.tolist())
+
+    ## Method to assign next design decision based on action (used for One Decision Environments)
+    def assign_dec_by_action(self, state, action):
+
+        if self.new_reward:
+            if self.include_weights:
+                state_design = state['design']
+                state_obj_weight0 = state['objective weight0']
+            else:
+                state_design = state
+        else:
+            state_design = state
+
+        # Find decision to assign
+        assign_idx = len(state_design)
+        for i in range(len(state_design)):
+            if state_design[i] == -1:
+                assign_idx = state_design[i]
+                break
+
+        try:
+            new_state_design = np.copy(state_design)
+            new_state_design[assign_idx] = action
+            if self.include_weights:
+                new_state = self.obs_space.sample()
+                new_state['design'] = new_state_design
+                new_state['objective weight0'] = state_obj_weight0
+                #new_state = OrderedDict(('design', new_state_design), ('objective weights', state_obj_weights))
+            else:
+                new_state = new_state_design
+        except:
+            current_state = state
+            current_action = action
+            print("Current state: " + str(current_state))
+            print("Current action: " + str(current_action))
+            print("Modify by action exception")
+
+        return assign_idx, new_state
+    
+    ## Method to set new design for One Decision environments
+    def set_new_design(self, new_decisions):
+        new_state = np.zeros(len(new_decisions))
+
+        for i in range(len(new_decisions)):
+            if not new_decisions == -1:
+                new_state[i] = new_decisions[i]
+            else:
+                break
+
+        self.operations_instance.setNewDesign(new_state.tolist())
 
     ## Method to modify state based on action
     def modify_by_action(self, state, action):
@@ -362,7 +432,7 @@ class MetamaterialSupport:
         return r
     
     # Alternative reward computation solely based on the current state's objectives and constraints
-    def compute_reward2(self, prev_state, state, nfe_val, start_of_traj):
+    def compute_reward2(self, prev_state, state, nfe_val, include_prev_des):
 
         if self.include_weights:
             prev_design = prev_state['design']
@@ -387,7 +457,7 @@ class MetamaterialSupport:
         # Evaluate previous design
         prev_des_bitstring = self.get_bitstring(prev_design)
         if not prev_des_bitstring in list(self.explored_design_objectives.keys()):
-            if start_of_traj: # Previous design is not saved if start of trajectory, new design now is previous design in the next step of the trajectory
+            if include_prev_des: # Previous design is not saved if start of trajectory, new design now is previous design in the next step of the trajectory
                 if self.include_weights:
                     prev_truss_des = TrussDesign(design_array=prev_design, weight=prev_obj_weight0)
                 else:
@@ -406,7 +476,7 @@ class MetamaterialSupport:
             prev_truss_des.set_heur_vals(prev_heurs)
             prev_truss_des.set_nfe(nfe_val)
         else:
-            if start_of_traj:
+            if include_prev_des:
                 if self.include_weights:
                     prev_truss_des = TrussDesign(design_array=prev_design, weight=prev_obj_weight0) 
                 else:
@@ -471,17 +541,74 @@ class MetamaterialSupport:
             r -= np.mean(constrs)
         else:
             ## New formulation
-            dominates, non_dominating = self.dominates(objs, constrs, [prev_objs], [prev_constrs])
-            if dominates:
-                r = 1
-            elif non_dominating:
-                r = 0
+            # dominates, non_dominating = self.dominates(objs, constrs, [prev_objs], [prev_constrs])
+            # if dominates:
+            #     r_dom = 1
+            # elif non_dominating:
+            #     r_dom = 0
+            # else:
+            #     r_dom = -1
+
+            # #r = 100*r_dom + np.max(np.abs(objs - prev_objs))
+            # r = r_dom
+            if any(c > 1 for c in constrs):
+                r = -10
             else:
-                r = -1
+                r = 1 - np.mean(constrs)
 
         return r, nfe_val, prev_truss_des, current_truss_des
+    
+    ## Method to compute reward for the One Decision Environments
+    def compute_reward_one_dec(self, state, nfe_val):
 
-    # Method to compute the crowding distance for each design in the objectives list
+        if self.include_weights:
+            design = state['design']
+            obj_weight0 = state['objective weight0'][0]
+
+            obj_weights = [obj_weight0, (1.0 - obj_weight0)]
+
+            current_truss_des = TrussDesign(design_array=design, weight=obj_weight0)
+        else:
+            design = state
+            current_truss_des = TrussDesign(design_array=design, weight=0.0)
+
+        r = 0
+
+        if not -1 in design: # All decisions have been assigned
+            new_des_bitstring = self.get_bitstring(design)
+            if not new_des_bitstring in list(self.explored_design_objectives.keys()):
+                objs, constrs, heurs, true_objs = self.evaluate_design(design) # objs are normalized with no constraint penalties added
+                self.explored_design_objectives[new_des_bitstring] = objs
+                self.explored_design_constraints[new_des_bitstring] = constrs
+                self.explored_design_heuristics[new_des_bitstring] = heurs
+                self.explored_design_true_objectives[new_des_bitstring] = true_objs
+                nfe_val += 1
+                current_truss_des.set_objs(true_objs)
+                current_truss_des.set_constr_vals(constrs)
+                current_truss_des.set_heur_vals(heurs)
+            else:
+                objs = self.explored_design_objectives[new_des_bitstring]
+                constrs = self.explored_design_constraints[new_des_bitstring]
+                heurs = self.explored_design_heuristics[new_des_bitstring] 
+                true_objs = self.explored_design_true_objectives[new_des_bitstring]
+                current_truss_des.set_objs(true_objs)
+                current_truss_des.set_constr_vals(constrs)
+                current_truss_des.set_heur_vals(heurs)
+
+            current_truss_des.set_nfe(nfe_val)
+
+            if self.include_weights:
+                for obj, weight, max_obj in zip(objs, obj_weights, self.obj_max):
+                    if max_obj:
+                        r += weight*obj
+                    else:
+                        r += -weight*obj
+
+                r -= np.mean(constrs)
+
+        return r, nfe_val, current_truss_des
+
+    ## Method to compute the crowding distance for each design in the objectives list
     def compute_crowding_distances(self, objs_list):
         current_cds = np.zeros((len(objs_list), len(objs_list[0])))
 

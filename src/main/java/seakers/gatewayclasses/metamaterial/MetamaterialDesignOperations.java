@@ -56,7 +56,8 @@ public class MetamaterialDesignOperations {
     private int[] newDesign;
 
     /**
-     * Constructor for class instance, only starts the Matlab engine
+     * Constructor for metamaterial operations class instance
+     * starts the Matlab engine, sets the problem instance, modifies a design based on the action and evaluates a design
      */
     public MetamaterialDesignOperations() throws InterruptedException, ExecutionException {
         this.engine = MatlabEngine.startMatlab();
@@ -326,6 +327,14 @@ public class MetamaterialDesignOperations {
         this.newDesign = newDesign;
         //System.out.println("Operation complete. New design = " + Arrays.toString(newDesign));
         //System.out.println("");
+    }
+
+    public void setNewDesign(ArrayList<Integer> design) {
+        int[] newDesign = new int[design.size()];
+        for (int i = 0; i < design.size(); i++) {
+            newDesign[i] = design.get(i);
+        }
+        this.newDesign = newDesign;
     }
 
     // Retrieval Methods (run after operate() and evaluate())

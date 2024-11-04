@@ -23,6 +23,8 @@ import seakers.aos.operator.AOSVariationSI;
 import seakers.aos.operatorselectors.AdaptivePursuit;
 import seakers.aos.operatorselectors.OperatorSelector;
 import seakers.aos.operatorselectors.ProbabilityMatching;
+import seakers.moeaclasses.ModifiedArteryProblem;
+import seakers.moeaclasses.ModifiedEqualStiffnessProblem;
 import seakers.trussaos.operators.constantradii.AddDiagonalMember;
 import seakers.trussaos.operators.constantradii.AddMember;
 import seakers.trussaos.operators.constantradii.ImproveOrientation2;
@@ -235,6 +237,7 @@ public class MOEARun {
                 double printableModulus = 1.8162e6; // in Pa
                 double sideNodeNumber = 5.0D;
                 int nucFactor = 3; // Not used if PBC model is used
+                double feasibleStiffnessDelta = 0.01;
 
                 int totalNumberOfMembers;
                 if (sideNodeNumber >= 5) {
@@ -249,11 +252,17 @@ public class MOEARun {
 
                 double[][] globalNodePositions;
                 if (arteryProblem) {
-                    problem = new ConstantRadiusArteryProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained);
-                    globalNodePositions = ((ConstantRadiusArteryProblem) problem).getNodalConnectivityArray();
+                    //problem = new ConstantRadiusArteryProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained);
+                    //globalNodePositions = ((ConstantRadiusArteryProblem) problem).getNodalConnectivityArray();
+
+                    problem = new ModifiedArteryProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained, feasibleStiffnessDelta);
+                    globalNodePositions = ((ModifiedArteryProblem) problem).getNodalConnectivityArray();
                 } else {
-                    problem = new ConstantRadiusTrussProblem2(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained);
-                    globalNodePositions = ((ConstantRadiusTrussProblem2) problem).getNodalConnectivityArray();
+                    //problem = new ConstantRadiusTrussProblem2(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained);
+                    //globalNodePositions = ((ConstantRadiusTrussProblem2) problem).getNodalConnectivityArray();
+
+                    problem = new ModifiedEqualStiffnessProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained, feasibleStiffnessDelta);
+                    globalNodePositions = ((ModifiedEqualStiffnessProblem) problem).getNodalConnectivityArray();
                 }
                 variableNames = new String[problem.getNumberOfVariables()];
                 objectiveNames = new String[problem.getNumberOfObjectives()];

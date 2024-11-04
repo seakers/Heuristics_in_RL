@@ -32,8 +32,8 @@ from keras import layers
 from tqdm import tqdm
 
 from ppo_buffer import Buffer
-from envs.ArteryProblemEnv import ArteryProblemEnv
-from envs.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
+from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
+from envs.metamaterial.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
 from save.ResultSaving import ResultSaver
 
 import matplotlib.pyplot as plt
@@ -68,6 +68,8 @@ eval_interval = data_ppo["Episode interval for evaluation"] # After how many epi
 new_reward = data_ppo["Use new problem formulation"]
 include_weights = data_ppo["Include weights in state"]
 
+sample_minibatch = data_ppo["Sample minibatch"] # Whether to sample minibatch or use the entire set of generated trajectories
+
 initial_collect_trajs = data_ppo["Initial number of stored trajectories"] # number of trajectories in the driver to populate replay buffer before beginning training (only used if replay buffer is used)
 trajectory_collect_steps = data_ppo["Number of steps in a collected trajectory"] # number of steps in each trajectory
 episode_training_trajs = data_ppo["Number of trajectories used for training per episode"] # number of trajectories sampled in each iteration to train the actor and critic
@@ -77,6 +79,9 @@ replay_buffer_capacity = data_ppo["Replay buffer capacity"] # maximum number of 
 if minibatch_steps > trajectory_collect_steps:
     print("Number of steps in a minibatch is greater than the number of collected steps, reduce the minibatch steps")
     sys.exit(0)
+
+if not sample_minibatch:
+    minibatch_steps = trajectory_collect_steps
 
 ## NOTE: Total number of designs used for training in each run = episode_training_trajs*minibatch_steps*max_train_episodes
 
@@ -211,7 +216,7 @@ def compute_avg_return(environment, actor, num_steps=100, num_episodes=10):
             traj_start = False
             if eval_step == 0:
                 traj_start = True
-            next_obs, reward, done, kw_args = environment.step(action=action, nfe_val=eval_step, traj_start=traj_start)
+            next_obs, reward, done, kw_args = environment.step(action=action, nfe_val=eval_step, include_prev_des=traj_start)
             episode_return += (gamma**eval_step)*reward
 
             if done:
@@ -309,7 +314,7 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
             if step == 0:
                 traj_start = True
 
-            next_obs, reward, done, add_arg = train_env.step(action, current_nfe, traj_start)
+            next_obs, reward, done, add_arg = train_env.step(action=action, nfe_val=current_nfe, include_prev_des=traj_start)
             if new_reward:
                 if include_weights:
                     #next_obs = sum(next_obs.values(), [])
@@ -324,6 +329,8 @@ def generate_trajectories(num_states, num_actions, num_action_vals, n_trajs, col
 
             if new_reward:
                 if not current_truss_des == None: # To match truss designs with the saved states, initial current_truss_des is saved and final new_truss_des is skipped
+                    if new_truss_des.get_objs() == [] or current_truss_des.get_objs == []:
+                        print('New design not evaluated')
                     current_traj_des.append(current_truss_des)
                 if step < (collect_steps-1):
                     current_traj_des.append(new_truss_des)
@@ -392,7 +399,7 @@ def discounted_cumulative_sums(rewards, compute_advantage=True):
 def compute_advantages_and_returns(indices, full_rewards, full_values, ad_norm):
     # gamma and lam are defined globally
 
-    full_deltas = np.zeros((len(full_rewards)-1))
+    full_deltas = np.zeros((len(full_rewards)-1)) # size of actual trajectory
     for i in range(len(full_rewards)-1):
         full_deltas[i] = full_rewards[i] + gamma*full_values[i+1] - full_values[i]
 
@@ -403,12 +410,13 @@ def compute_advantages_and_returns(indices, full_rewards, full_values, ad_norm):
         full_returns[ind] = discounted_cumulative_sums(full_rewards[ind:], compute_advantage=False)
 
     if ad_norm:
-        #full_advantage_mean = np.mean(full_advantages)
-        #full_advantage_std = np.std(full_advantages)
-        #full_advantages = np.divide(np.subtract(full_advantages, full_advantage_mean), full_advantage_std)
+        full_advantage_mean = np.mean(full_advantages)
+        full_advantage_std = np.std(full_advantages)
+        full_advantages = np.divide(np.subtract(full_advantages, full_advantage_mean), full_advantage_std)
 
-        full_advantage_max = np.max(np.absolute(full_advantages))
-        full_advantages = np.divide(full_advantages, full_advantage_max)
+        #full_advantages_num = np.subtract(full_advantages, np.min(full_advantages))
+        #full_advantages_den = np.max(full_advantages) - np.min(full_advantages)
+        #full_advantages = np.divide(full_advantages_num, full_advantages_den)
 
     #self.trajectory_start_index = self.current_end_position
 
@@ -434,7 +442,7 @@ def train_actor(observation_samples, action_samples, logits_samples, advantage_s
         if use_clipping:
             clipped_ratio = tf.where(ratio > (1 + clip_ratio), (1 + clip_ratio), ratio) # clipping the coefficient of the advantage in the loss function if ratio > (1 + clip_ratio)
             clipped_ratio = tf.where(clipped_ratio < (1 - clip_ratio), (1 - clip_ratio), clipped_ratio) # clipping the coefficient of the advantage in the loss function if ratio < (1 - clip_ratio)
-            policy_loss_clipping = -tf.reduce_mean(tf.minimum(tf.math.multiply(ratio, advantage_samples), tf.math.multiply(clipped_ratio, advantage_samples)))
+            policy_loss_clipping = tf.reduce_mean(tf.minimum(tf.math.multiply(ratio, advantage_samples), tf.math.multiply(clipped_ratio, advantage_samples)))
         
         kl_divergence = tf.reduce_sum(tf.math.multiply(probabilities_old, tf.math.log(tf.math.divide(probabilities_old, probabilities_new))), axis=1)
         kl_mean = tf.reduce_mean(kl_divergence)
@@ -452,7 +460,9 @@ def train_actor(observation_samples, action_samples, logits_samples, advantage_s
         if use_entropy_bonus: 
             entropy = -tf.reduce_mean(tf.reduce_sum(tf.multiply(probabilities_new, tf.math.log(probabilities_new)), axis=1)) 
 
-        policy_loss = policy_loss_clipping + adaptive_kl_penalty + entropy_coeff*entropy
+        policy_loss = -policy_loss_clipping + adaptive_kl_penalty - entropy_coeff*entropy
+        print('Clipping loss: ' + str(policy_loss_clipping))
+        print('Entropy bonus: ' + str(entropy))
     
     policy_grads = tape.gradient(policy_loss, actor_net.trainable_variables)
     # Check if there are any NaNs in the gradients tensor
@@ -506,6 +516,7 @@ critic_loss_steps_runs = {}
 actor_loss_steps_runs = {}
 
 n_train_episodes_runs = np.zeros(n_runs)
+n_train_episodes_runs.fill(original_max_train_episodes)
 
 for run_num in range(n_runs):
 
@@ -668,12 +679,15 @@ for run_num in range(n_runs):
                             # Retrieve a random trajectory slice from the buffer to construct training minibatch 
                             traj_idx = np.random.randint(low=0, high=n_stored_trajs)
                             traj_full_obs, traj_full_truss_des, traj_full_acts, traj_full_rs, traj_full_dones, traj_full_logits = buffer.get_trajectory(trajectory_index=traj_idx)
-                            if use_continuous_minibatch:
-                                start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
-                                end_idx = start_idx + minibatch_steps
-                                indices_array = np.arange(start_idx, end_idx)
+                            if sample_minibatch:
+                                if use_continuous_minibatch:
+                                    start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
+                                    end_idx = start_idx + minibatch_steps
+                                    indices_array = np.arange(start_idx, end_idx)
+                                else:
+                                    indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
                             else:
-                                indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
+                                indices_array = np.arange(0, trajectory_collect_steps)
                             traj_obs = traj_full_obs[indices_array, :]
                             traj_truss_des = traj_full_truss_des[indices_array]
                             traj_acts = traj_full_acts[indices_array, :]
@@ -725,14 +739,17 @@ for run_num in range(n_runs):
                                 trajectory_states, trajectory_actions, trajectory_rewards, trajectory_dones, trajectory_policy_logits, trajectory_truss_des, modified_nfe = generate_trajectories(num_states=n_states, num_actions=n_actions, num_action_vals=n_action_vals, n_trajs=1, collect_steps=trajectory_collect_steps+1, actor=actor_net, current_nfe=global_nfe)
                                 global_nfe = modified_nfe
 
-                            # Extract slice from the trajectory (Assumption: continuous trajectory slice is considered instead of random steps in the trajectory)
-                            if use_continuous_minibatch:
-                                start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
-                                end_idx = start_idx + minibatch_steps
-                                indices_array = np.arange(start_idx, end_idx)    
+                            # Extract slice from the trajectory 
+                            if sample_minibatch:
+                                if use_continuous_minibatch: #continuous trajectory slice is considered instead of random steps in the trajectory
+                                    start_idx = np.random.randint(low=0, high=(trajectory_collect_steps-minibatch_steps-1)) # -1 to account for additional observation sampled for last time step delta computation
+                                    end_idx = start_idx + minibatch_steps
+                                    indices_array = np.arange(start_idx, end_idx)    
+                                else:
+                                    indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
                             else:
-                                indices_array = np.random.randint(0, trajectory_collect_steps-1, size=minibatch_steps)
-
+                                indices_array = np.arange(0, trajectory_collect_steps)
+                            
                             traj_slice_states = trajectory_states[0, indices_array, :]
                             traj_slice_truss_des = np.array(trajectory_truss_des)[0, indices_array] 
                             traj_slice_actions = trajectory_actions[0, indices_array, :]
@@ -773,7 +790,7 @@ for run_num in range(n_runs):
                     print('Actor Training')
                     with tqdm(total=train_policy_iterations, desc='Actor training') as pbar_act:
                         if use_early_stopping:
-                            training_end_step = 1
+                            training_end_step = 0
                         for _ in range(train_policy_iterations):
                             actor_train_loss, mean_kl = train_actor(observation_samples=train_minibatch_states, action_samples=train_minibatch_actions, logits_samples=train_minibatch_logits, advantage_samples=train_minibatch_advantages, target_kl=kl_targ, entropy_coeff=ent_coeff)
                             actor_losses_iterations.append(actor_train_loss.numpy())
@@ -969,6 +986,9 @@ critic_combined_train_steps = {}
 
 max_train_episode_allruns = np.max(n_train_episodes_runs)
 
+actor_loss_mean_runs = {}
+critic_loss_mean_runs = {}
+
 for i in range(n_runs):
     critic_losses_current_run = critic_losses_runs['run' + str(i)]
     critic_train_steps_current_run = critic_loss_steps_runs['run' + str(i)]
@@ -979,11 +999,18 @@ for i in range(n_runs):
     # Approach 1: Combine losses for each episode into a single list while filling gaps for early stopped iterations (conducive for statistics)
     critic_loss_combined_current_run = []
     actor_loss_combined_current_run = []
+
+    critic_loss_mean_current_run = []
+    actor_loss_mean_current_run = []
+
     for j in range(int(n_train_episodes_runs[i])):
         critic_loss_combined_current_run.extend(critic_losses_current_run[j]) # critic training is never early stopped
+        critic_loss_mean_current_run.append(np.mean(critic_losses_current_run[j]))
         
         actor_loss_current_episode = actor_losses_current_run[j]
         actor_loss_combined_current_run.extend(actor_loss_current_episode)
+        actor_loss_mean_current_run.append(np.mean(actor_loss_current_episode))
+
         if len(actor_loss_current_episode) < train_policy_iterations:
             for k in range(train_policy_iterations - len(actor_loss_current_episode)):
                 actor_loss_combined_current_run.append(actor_loss_current_episode[-1]) # extend list to match the number of policy training iterations by copying the last policy loss
@@ -1025,6 +1052,9 @@ for i in range(n_runs):
     actor_loss_combined_runs['run ' + str(i)] = actor_loss_combined_current_run
     critic_loss_combined_runs['run ' + str(i)] = critic_loss_combined_current_run
 
+    actor_loss_mean_runs['run ' + str(i)] = actor_loss_mean_current_run
+    critic_loss_mean_runs['run ' + str(i)] = critic_loss_mean_current_run
+
     actor_combined_train_steps['run ' + str(i)] = actor_train_steps_combined_current_run
     critic_combined_train_steps['run ' + str(i)] = critic_train_steps_combined_current_run
 
@@ -1034,14 +1064,13 @@ n_stats_interval = 5
 actor_stats_steps = np.arange(max_train_episode_allruns*train_policy_iterations, step=n_stats_interval)
 critic_stats_steps = np.arange(max_train_episode_allruns*train_value_iterations, step=n_stats_interval)
 
+actor_mean_stats_steps = np.arange(max_train_episodes)
+critic_mean_stats_steps = np.arange(max_train_episodes)
+
+# Computing stats for combined actor loss 
 actor_loss_med = []
 actor_loss_1q = []
 actor_loss_3q = []
-
-critic_loss_med = []
-critic_loss_1q = []
-critic_loss_3q = []
-
 for step_val in actor_stats_steps:
     actor_loss_runs = np.zeros(n_runs)
 
@@ -1053,6 +1082,24 @@ for step_val in actor_stats_steps:
     actor_loss_1q.append(np.percentile(actor_loss_runs, 25))
     actor_loss_3q.append(np.percentile(actor_loss_runs, 75))
 
+# Computing stats for mean actor loss 
+actor_mean_loss_med = []
+actor_mean_loss_1q = []
+actor_mean_loss_3q = []
+for step_val in actor_mean_stats_steps:
+    actor_mean_loss_runs = np.zeros(n_runs)
+
+    for i in range(n_runs):
+        actor_mean_loss_runs[i] = actor_loss_mean_runs['run ' + str(i)][step_val]
+
+    actor_mean_loss_med.append(np.median(actor_mean_loss_runs))
+    actor_mean_loss_1q.append(np.percentile(actor_mean_loss_runs, 25))
+    actor_mean_loss_3q.append(np.percentile(actor_mean_loss_runs, 75))
+
+# Computing stats for combined critic loss 
+critic_loss_med = []
+critic_loss_1q = []
+critic_loss_3q = []
 for step_val in critic_stats_steps:
     critic_loss_runs = np.zeros(n_runs)
 
@@ -1063,6 +1110,20 @@ for step_val in critic_stats_steps:
     critic_loss_med.append(np.median(critic_loss_runs))
     critic_loss_1q.append(np.percentile(critic_loss_runs, 25))
     critic_loss_3q.append(np.percentile(critic_loss_runs, 75))
+
+# Computing stats for mean critic loss 
+critic_mean_loss_med = []
+critic_mean_loss_1q = []
+critic_mean_loss_3q = []
+for step_val in critic_mean_stats_steps:
+    critic_mean_loss_runs = np.zeros(n_runs)
+
+    for i in range(n_runs):
+        critic_mean_loss_runs[i] = critic_loss_mean_runs['run ' + str(i)][step_val]
+
+    critic_mean_loss_med.append(np.median(critic_mean_loss_runs))
+    critic_mean_loss_1q.append(np.percentile(critic_mean_loss_runs, 25))
+    critic_mean_loss_3q.append(np.percentile(critic_mean_loss_runs, 75))
 
 # Plotting actor combined training
 plt.figure()
@@ -1075,6 +1136,17 @@ plt.title('Actor training: episodes combined and averaged over runs')
 #plt.show()
 plt.savefig(save_path + "ppo_actor_combined_train.png", dpi=600)
 
+# Plotting actor mean training
+plt.figure()
+plt.plot(actor_mean_stats_steps, actor_mean_loss_med)
+plt.fill_between(actor_mean_stats_steps, actor_mean_loss_1q, actor_mean_loss_3q, alpha=0.6)
+plt.xlabel('Training step')
+plt.ylabel('Mean actor loss')
+plt.grid()
+plt.title('Actor training: averaged within episodes, combined and averaged over runs')
+#plt.show()
+plt.savefig(save_path + "ppo_actor_mean_train.png", dpi=600)
+
 # Plotting critic combined training
 plt.figure()
 plt.plot(critic_stats_steps, critic_loss_med)
@@ -1085,6 +1157,17 @@ plt.grid()
 plt.title('Critic training: episodes combined and averaged over runs')
 #plt.show()
 plt.savefig(save_path + "ppo_critic_combined_train.png", dpi=600)
+
+# Plotting critic combined training
+plt.figure()
+plt.plot(critic_mean_stats_steps, critic_mean_loss_med)
+plt.fill_between(critic_mean_stats_steps, critic_mean_loss_1q, critic_mean_loss_3q, alpha=0.6)
+plt.xlabel('Training step')
+plt.ylabel('Mean critic loss')
+plt.grid()
+plt.title('Critic training: averaged within episodes, combined and averaged over runs')
+#plt.show()
+plt.savefig(save_path + "ppo_critic_mean_train.png", dpi=600)
 
 end_time = time.time()
 print("Total time: " + str(end_time-start_time))
