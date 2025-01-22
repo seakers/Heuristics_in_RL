@@ -1,18 +1,16 @@
 {
-    "Number of runs": 1, 
+    "Number of runs": 5, 
     
     "Value discount (gamma)": 0.99, 
-    "Number of training episodes": 1000, 
-    "Maximum steps in training episode (for train environment termination)": 100000, 
-    "Maximum steps in evaluation episode (for evaluation environment termination)": 100,
-    "Number of evaluation episodes": 10,
-    
-    "Episode interval for evaluation": 10, 
-    "Number of steps in a collected trajectory": 100,
-    "Number of trajectories used for training per episode": 30,
-    "Number of steps in a minibatch": 100,
+    "Number of training episodes": 500, 
+    "Maximum steps in evaluation episode": 30,
 
-    "Maximum unique NFE": 30000000,
+    "Episode interval for evaluation": 5, 
+    "Number of steps in a collected trajectory": 30,
+    "Number of trajectories used for training per episode": 250,
+    "Number of steps in a minibatch": 30,
+
+    "Maximum unique NFE": 5000000,
     
     "Compute periodic returns": true,
     "Continuous minibatch": false,
@@ -23,7 +21,7 @@
     "Discrete actions": true,
     "Advantage discount (lambda)": 0.9,
     "Use new problem formulation": true,
-    "Include weights in state": false,
+    "Include weights in state": true,
     
     "Actor network layer units": [200, 100, 200],
     "Actor network dropout probabilities": [0.20, 0.10, 0.20],
@@ -32,16 +30,17 @@
     
     "Clipping ratio threshold": 0.1,
     "Use entropy loss bonus": true,
-    "Entropy coefficient": 0.5,
+    "Entropy coefficient": 1000,
 
     "Clip gradient norm": false,
     "Max gradient norm": 1.0,
+    "Critic loss coefficient": 0.001,
     
     "Number of training epochs": 30,
     
     "Initial training learning rate": 1e-4,
     "Learning rate decay rate": 0.95,
-    "Learning rate decay steps": 1000,
+    "Learning rate decay steps": 5000,
     "RMSprop optimizer velocity discount rate": 0.9,
     "RMSprop optimizer momentum": 0.1,
 

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class ArteryProblemEnv(gym.Env):
-    def __init__(self, operations_instance, n_actions, n_states, max_steps, model_sel, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used, render_steps, new_reward, obj_max, include_wts_in_state):
+    def __init__(self, operations_instance, n_actions, n_states, model_sel, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used, render_steps, new_reward, obj_max, include_wts_in_state):
 
         super(ArteryProblemEnv, self).__init__()
 
@@ -49,16 +49,17 @@ class ArteryProblemEnv(gym.Env):
         else:
             self.observation_space = spaces.MultiBinary(n_states)
 
-        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=c_target_delta, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space, include_weights=include_wts_in_state)
+        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=c_target_delta, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=True, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space, include_weights=include_wts_in_state)
 
         # Initial state
         self.start_pos = self.observation_space.sample()
         self.current_pos = self.start_pos
+        self.current_truss_des = None
         self.action_members = []
 
-        # Counting number of steps
+        # Counting NFEs
         self.step_number = 0
-        self.max_steps = max_steps
+        self.current_nfe_val = 0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed, options=options)
@@ -73,23 +74,24 @@ class ArteryProblemEnv(gym.Env):
         self.metamat_support.current_design_hashset = set()
         return self.current_pos, {}
 
-    def step(self, action, nfe_val, include_prev_des):
+    def step(self, action):
         # Modify design based on selected action (use method that calls Java Gateway)
         new_pos = self.metamat_support.modify_by_action(self.current_pos, action)
         
         # Get action members
-        self.action_members, member_added = self.metamat_support.obtain_action_members()
+        self.action_members, self.member_added = self.metamat_support.obtain_action_members()
 
         # Compute Reward Function
         if self.new_reward:
-            reward, mod_nfe, current_truss_des, new_truss_des = self.metamat_support.compute_reward2(prev_state=self.current_pos, state=new_pos, nfe_val=nfe_val, include_prev_des=include_prev_des)
+            reward, mod_nfe, current_truss_des, new_truss_des = self.metamat_support.compute_reward2(prev_state=self.current_pos, state=new_pos, nfe_val=self.current_nfe_val)
         else:
             reward = self.metamat_support.compute_reward(prev_state=self.current_pos, state=new_pos, step=self.step_number)
             new_truss_des = None
 
+        self.current_truss_des = new_truss_des
         # Render if needed
-        if self.render_steps:
-            self.render(action=action, member_added=member_added, new_state=new_pos, new_des=new_truss_des)
+        #if self.render_steps:
+            #self.render(action=action, member_added=member_added, new_state=new_pos, new_des=new_truss_des)
                 
         self.current_pos = new_pos
         self.step_number += 1
@@ -97,19 +99,17 @@ class ArteryProblemEnv(gym.Env):
         terminated = False # None of the test problems have terminal states, given that they are to be optimized
 
         truncated = False
-        if self.step_number >= self.max_steps: # in case more than {max_steps} designs are evaluated due to batch size
-            truncated = True
 
-        done = terminated or truncated
-        self.is_done = done
+        self.is_done = terminated or truncated
 
         kw_arg = {}
         if self.new_reward:    
+            self.current_nfe_val = mod_nfe
             kw_arg['Current NFE'] = mod_nfe
             kw_arg['Current truss design'] = current_truss_des
             kw_arg['New truss design'] = new_truss_des
 
-        return self.current_pos, reward, done, kw_arg
+        return self.current_pos, reward, terminated, truncated, kw_arg
     
     def get_step_counter(self):
         return self.step_number
@@ -117,8 +117,8 @@ class ArteryProblemEnv(gym.Env):
     def get_isdone(self):
         return self.is_done
     
-    def render(self, action, member_added, new_state, new_des):
-        
+    def render(self):
+
         # Create figure
         if self.step_number == 0:
             fig = plt.figure()
@@ -141,10 +141,10 @@ class ArteryProblemEnv(gym.Env):
 
         # Get new design objectives and constraints
         if self.new_reward:
-            new_objs = new_des.get_objs()
-            new_constrs = new_des.get_constrs()
+            new_objs = self.current_truss_des.get_objs()
+            new_constrs = self.current_truss_des.get_constrs()
         else:
-            new_norm_objs, new_constrs, new_heurs, new_objs = self.metamat_support.evaluate_design(new_state)
+            new_norm_objs, new_constrs, new_heurs, new_objs = self.metamat_support.evaluate_design(self.current_pos)
 
         # Plot current design members
         for j in range(design_CA.shape[0]): 
@@ -163,7 +163,7 @@ class ArteryProblemEnv(gym.Env):
 
         # Plot actions (green - added member, red - removed member)
         #if action < self.n_states: # member addition
-        if member_added: # member addition
+        if self.member_added: # member addition
             for member in self.action_members:
                 # Position of first node in member
                 x1 = nodal_conn_array[int(member[0]-1),0]

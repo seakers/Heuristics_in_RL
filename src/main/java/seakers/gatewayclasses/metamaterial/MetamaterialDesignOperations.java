@@ -10,6 +10,7 @@ import org.moeaframework.core.operator.binary.BitFlip;
 import org.moeaframework.core.variable.BinaryVariable;
 import org.moeaframework.core.variable.EncodingUtils;
 import org.moeaframework.problem.AbstractProblem;
+import seakers.gatewayclasses.DesignOperations;
 import seakers.trussaos.architecture.TrussRepeatableArchitecture;
 import seakers.trussaos.operators.constantradii.AddDiagonalMember;
 import seakers.trussaos.operators.constantradii.AddMember;
@@ -23,7 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.ExecutionException;
 
-public class MetamaterialDesignOperations {
+public class MetamaterialDesignOperations extends DesignOperations {
 
     // Parameters for problem class
     private String savePath;

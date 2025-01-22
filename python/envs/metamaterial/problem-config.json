@@ -1,5 +1,6 @@
 {
     "Solve artery problem": false,
+    "Use One Decision Environment": true,
 
     "Model selection": 1,
 
@@ -15,8 +16,7 @@
     "Heuristic abbreviations": ["p","n","o","i"],
     "Heuristics used": [false, false, false, false],
 
-    "Constraint names": ["StiffnessRatioViolation"],
-    "Target stiffness ratio": 1,
+    "Constraint names": ["ConnectivityViolation","StiffnessRatioViolation"],
     "Feasible stiffness delta": 0.01,
         
     "Render steps": false

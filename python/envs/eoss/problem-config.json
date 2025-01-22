@@ -1,0 +1,21 @@
+{
+    "Solve assigning problem": true,
+    "Use One Decision Environment": true,
+
+    "Consider feasibility for architecture evaluator": true,
+
+    "Resources Path": "C:\\SEAK Lab\\SEAK Lab Github\\VASSAR\\VASSAR_resources-heur",
+
+    "Objective names": ["TrueObjective1","TrueObjective2"],
+    "Objective maximized": [false, false],
+    "Heuristic names": ["DCViolation","InstrOrbViolation","InterInstrViolation","PackEffViolation","SpMassViolation","SynergyViolation","InstrCountViolation"],
+    "Heuristic abbreviations": ["d","o","i","p","m","s","c"],
+    "Heuristics used": [false, false, false, false, false, false, false],
+
+    "Duty cycle threshold": 0.5,
+    "Spacecraft wet mass threshold (in kg)": 3000.0,
+    "Packing efficiency threshold": 0.7,
+    "Instrument count threshold": 15.0,
+        
+    "Render steps": false
+}
