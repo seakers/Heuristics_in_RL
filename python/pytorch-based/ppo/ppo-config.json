@@ -1,14 +1,14 @@
 {
-    "Number of runs": 5, 
+    "Number of runs": 3, 
     
     "Value discount (gamma)": 0.99, 
-    "Number of training episodes": 500, 
-    "Maximum steps in evaluation episode": 30,
+    "Number of training episodes": 50, 
+    "Maximum steps in evaluation episode": 60,
 
-    "Episode interval for evaluation": 5, 
-    "Number of steps in a collected trajectory": 30,
-    "Number of trajectories used for training per episode": 250,
-    "Number of steps in a minibatch": 30,
+    "Episode interval for evaluation": 10, 
+    "Number of steps in a collected trajectory": 60,
+    "Number of trajectories used for training per episode": 50,
+    "Number of steps in a minibatch": 60,
 
     "Maximum unique NFE": 5000000,
     
@@ -30,11 +30,11 @@
     
     "Clipping ratio threshold": 0.1,
     "Use entropy loss bonus": true,
-    "Entropy coefficient": 1000,
+    "Entropy coefficient": 0.001,
 
     "Clip gradient norm": false,
     "Max gradient norm": 1.0,
-    "Critic loss coefficient": 0.001,
+    "Critic loss coefficient": 0.1,
     
     "Number of training epochs": 30,
     

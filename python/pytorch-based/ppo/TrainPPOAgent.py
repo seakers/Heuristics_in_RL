@@ -69,6 +69,8 @@ import math
 from py4j.java_gateway import JavaGateway
 from py4j.java_gateway import GatewayParameters
 
+import csv
+
 import time
 
 #################################################################################################
@@ -149,7 +151,7 @@ if network_save_intervals > original_max_train_episodes:
     sys.exit(0)
 
 ## Define problem environment
-problem_choice = 1 # 1 - Metamaterial problem, 2 - EOSS problem
+problem_choice = 2 # 1 - Metamaterial problem, 2 - EOSS problem
 
 match problem_choice:
     case 1:
@@ -528,7 +530,9 @@ for run_num in range(n_runs):
     pbar_steps = tqdm(total=trajectory_collect_steps*episode_training_trajs*original_max_train_episodes)
     eval_str = ""
     overall_step_counter = 0 # used for result logger (TODO: Instead of this, use step counter and traj_ids from data_view)
-    update_nfe = 0
+    #update_nfe = 0
+    actor_losses_data = []
+    critic_losses_data = []
     
     # We iterate over the collector until it reaches the total number of frames it was designed to collect:
     for episode, tensordict_data in enumerate(collector):
@@ -613,7 +617,7 @@ for run_num in range(n_runs):
             loss_value.backward()
             # this is not strictly mandatory but it's good practice to keep
             # your gradient norm bounded
-            #torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
             optim.step()
             optim.zero_grad()
 
@@ -629,9 +633,15 @@ for run_num in range(n_runs):
             run_logs["run " + str(run_num)]["actor entropy loss"].append(loss_vals["loss_entropy"].detach().cpu().numpy())
             run_logs["run " + str(run_num)]["episode epochs"].append((episode*train_epochs) + epoch)
 
-        run_logs["run " + str(run_num)]["mean actor clipping loss"].append(np.mean(actor_clip_loss))
-        run_logs["run " + str(run_num)]["mean actor entropy loss"].append(np.mean(actor_entropy_loss))
-        run_logs["run " + str(run_num)]["mean critic loss"].append(np.mean(critic_loss))
+        mean_clipping_loss = np.mean(actor_clip_loss)
+        mean_entropy_loss = np.mean(actor_entropy_loss)
+        mean_critic_loss = np.mean(critic_loss)
+        run_logs["run " + str(run_num)]["mean actor clipping loss"].append(mean_clipping_loss)
+        run_logs["run " + str(run_num)]["mean actor entropy loss"].append(mean_entropy_loss)
+        run_logs["run " + str(run_num)]["mean critic loss"].append(mean_critic_loss)
+
+        actor_losses_data.append([episode, mean_clipping_loss, mean_entropy_loss])
+        critic_losses_data.append([episode, mean_critic_loss])
 
         run_logs["run " + str(run_num)]["reward"].append(tensordict_data["next", "reward"].mean().item())
         pbar_steps.update(tensordict_data.numel())
@@ -685,6 +695,7 @@ for run_num in range(n_runs):
         # Evaluate actor at chosen intervals
         if compute_periodic_returns:
             if episode % eval_interval == 0:
+                policy_module.eval()
                 # We evaluate the policy once every "eval_interval" batches of data.
                 # Evaluation is rather simple: execute the policy without exploration
                 # (take the expected value of the action distribution) for a given
@@ -708,6 +719,7 @@ for run_num in range(n_runs):
                         #f"eval step-count: {logs['eval step_count'][-1]}"
                     )
                     del eval_rollout
+                policy_module.train()
 
             #pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
             pbar_steps.set_description(", ".join([eval_str, cumul_reward_str, lr_str]))
@@ -739,6 +751,23 @@ for run_num in range(n_runs):
 
     # Save results to the file
     result_logger.save_to_csv()
+
+    # Save mean losses to file
+    actor_losses_fields = ["Episode No.", "Mean Actor Clipping Loss", "Mean Actor Entropy Loss"]
+    critic_losses_fields = ["Episode No.", "Mean Critic Loss"]
+
+    actor_losses_savepath = os.path.join(current_save_path, "mean_actor_losses.csv")
+    critic_losses_savepath = os.path.join(current_save_path, "mean_critic_losses.csv")
+
+    with open(actor_losses_savepath, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(actor_losses_fields)
+            writer.writerows(actor_losses_data)
+
+    with open(critic_losses_savepath, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(critic_losses_fields)
+            writer.writerows(critic_losses_data)
 
     # Save trained actor and critic networks
     actor_model_filename = "learned_actor_network_final"

@@ -73,6 +73,8 @@ problem_choice = 1 # 1 - Metamaterial problem, 2 - EOSS problem
 
 match problem_choice:
     case 1:
+        metamat_prob = True
+
         f_prob = open('.\\envs\\metamaterial\\problem-config.json')
         data_prob = json.load(f_prob)
 
@@ -132,10 +134,39 @@ match problem_choice:
         n_states = math.comb(sidenum**2, 2) - 2*math.comb(sidenum, 2) # number of states = number of design variables 
 
     case 2:
-        print("TBD")
-        #print("EOSS - Assigning Problem")
+        f_prob = open('.\\envs\\eoss\\problem-config.json')
+        data_prob = json.load(f_prob)
 
-        #print("EOSS - Partitioning Problem")
+        assign_prob = data_prob["Solve assigning problem"] # If true -> assigning problem, false -> partitioning problem
+        one_dec = data_prob["Use One Decision Environment"] # If true -> {problem}OneDecisionEnvironment.py, false -> {problem}ProblemEnvironment.py
+        consider_feas = data_prob["Consider feasibility for architecture evaluator"] # Whether to consider design feasibility for evaluation (used for the Partitioning problem and always set to true)
+        resources_path = data_prob["Resources Path"]
+
+        obj_names = data_prob["Objective names"]
+        heur_names = data_prob["Heuristic names"] # make sure this is consistent with the order of the heuristic operators in the Java code
+        # [duty cycle violation, instrument orbit relations violation, instrument interference violation, packing efficiency violation, spacecraft mass violation, instrument synergy violation, instrument count violation(only for Assigning problem)]
+        heur_abbr = data_prob["Heuristic abbreviations"]
+        heurs_used = data_prob["Heuristics used"] 
+        # in the order of heur_names
+        n_heurs_used = heurs_used.count(True)
+
+        objs_max = data_prob["Objective maximized"]
+
+        dc_thresh = data_prob["Duty cycle threshold"]
+        mass_thresh = data_prob["Spacecraft wet mass threshold (in kg)"]
+        pe_thresh = data_prob["Packing efficiency threshold"]
+        ic_thresh = data_prob["Instrument count threshold"] # Only for assignment problem
+
+        render_steps = data_prob["Render steps"]
+
+        if assign_prob:
+            print("EOSS - Assigning Problem")
+        else:
+            print("EOSS - Partitioning Problem")
+            print("TBD")
+
+        metamat_prob = False
+        artery_prob = False
 
     case _:
         print("Invalid problem choice")
@@ -239,7 +270,10 @@ class ActorNetwork(nn.Module):
 
 # Initialize result saver
 current_save_path = os.path.join(save_path, "run " + str(run_num))
-result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, c_target_delta=feas_c_target_delta)
+if metamat_prob:
+    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, c_target_delta=feas_c_target_delta)
+else:
+    result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=[], heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, c_target_delta=0.0)
 
 ## Initialize environment
 if problem_choice == 1:
@@ -332,8 +366,8 @@ with tqdm(total=n_trajs) as pbar_traj:
                     next_state = eval_rollout['next']['observation'][step_counter].detach().cpu().numpy() 
                     reward = eval_rollout['next']['reward'][step_counter].detach().cpu().numpy()[0]
 
-                    true_objs, objs, constrs, heurs  = result_logger.evaluate_design(state_tensor)
-                    next_true_objs, next_objs, next_constrs, next_heurs  = result_logger.evaluate_design(next_state)
+                    true_objs, objs, constrs, heurs  = result_logger.evaluate_design(metamat_prob=metamat_prob, artery_prob=artery_prob, design=state_tensor)
+                    next_true_objs, next_objs, next_constrs, next_heurs  = result_logger.evaluate_design(metamat_prob=metamat_prob, artery_prob=artery_prob, design=next_state)
 
                     ## Plotting current agent step
                     if np.all(constrs == 0):
@@ -429,7 +463,7 @@ with tqdm(total=n_trajs) as pbar_traj:
             row['Action'] = eval_rollout['action'][-1].argmax().detach().cpu().numpy()
             reward = eval_rollout['next']['reward'][-1].detach().cpu().numpy()[0]
 
-            true_objs, objs, constrs, heurs  = result_logger.evaluate_design(artery_prob=artery_prob, design=state_tensor)
+            true_objs, objs, constrs, heurs  = result_logger.evaluate_design(metamat_prob=metamat_prob, artery_prob=artery_prob, design=state_tensor)
 
             ## Plotting current agent step
             if np.all(constrs == 0):

@@ -508,7 +508,7 @@ class EOSSSupport:
             current_truss_des.set_nfe(nfe_val)
 
             # Clear rete object every 100 NFEs
-            if nfe_val % 100:
+            if nfe_val % 100 == 0:
                 self.operations_instance.clearRete()
                 print("Rete object cleared")
 

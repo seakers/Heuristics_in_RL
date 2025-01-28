@@ -13,7 +13,7 @@ public class GatewayMainClass {
     private DesignOperations designOperations;
 
     public GatewayMainClass() throws ExecutionException, InterruptedException {
-        String problemType = "metamaterial"; // Whether a metamaterial or EOSS optimization problem is to be solved
+        String problemType = "eoss"; // Whether a metamaterial or EOSS optimization problem is to be solved
 
         switch (problemType) {
             case "metamaterial": {

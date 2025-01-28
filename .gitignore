@@ -2,3 +2,8 @@
 *.png
 *.csv
 *.h5
+.gradle/5.2.1/javaCompile/javaCompile.lock
+matlab/objective_bounds_5x5.mat
+matlab/objective_bounds_5x5_moea.mat
+matlab/Random 5x5 designs feasibility violations.xlsx
+ppo_keras_run_outputs_for_debugging.txt

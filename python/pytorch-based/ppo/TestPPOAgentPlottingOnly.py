@@ -46,6 +46,8 @@ problem_choice = 1 # 1 - Metamaterial problem, 2 - EOSS problem
 
 match problem_choice:
     case 1:
+        metamat_prob = True
+
         f_prob = open('.\\envs\\metamaterial\\problem-config.json')
         data_prob = json.load(f_prob)
 
@@ -105,10 +107,39 @@ match problem_choice:
         n_states = math.comb(sidenum**2, 2) - 2*math.comb(sidenum, 2) # number of states = number of design variables 
 
     case 2:
-        print("TBD")
-        #print("EOSS - Assigning Problem")
+        f_prob = open('.\\envs\\eoss\\problem-config.json')
+        data_prob = json.load(f_prob)
 
-        #print("EOSS - Partitioning Problem")
+        assign_prob = data_prob["Solve assigning problem"] # If true -> assigning problem, false -> partitioning problem
+        one_dec = data_prob["Use One Decision Environment"] # If true -> {problem}OneDecisionEnvironment.py, false -> {problem}ProblemEnvironment.py
+        consider_feas = data_prob["Consider feasibility for architecture evaluator"] # Whether to consider design feasibility for evaluation (used for the Partitioning problem and always set to true)
+        resources_path = data_prob["Resources Path"]
+
+        obj_names = data_prob["Objective names"]
+        heur_names = data_prob["Heuristic names"] # make sure this is consistent with the order of the heuristic operators in the Java code
+        # [duty cycle violation, instrument orbit relations violation, instrument interference violation, packing efficiency violation, spacecraft mass violation, instrument synergy violation, instrument count violation(only for Assigning problem)]
+        heur_abbr = data_prob["Heuristic abbreviations"]
+        heurs_used = data_prob["Heuristics used"] 
+        # in the order of heur_names
+        n_heurs_used = heurs_used.count(True)
+
+        objs_max = data_prob["Objective maximized"]
+
+        dc_thresh = data_prob["Duty cycle threshold"]
+        mass_thresh = data_prob["Spacecraft wet mass threshold (in kg)"]
+        pe_thresh = data_prob["Packing efficiency threshold"]
+        ic_thresh = data_prob["Instrument count threshold"] # Only for assignment problem
+
+        render_steps = data_prob["Render steps"]
+
+        if assign_prob:
+            print("EOSS - Assigning Problem")
+        else:
+            print("EOSS - Partitioning Problem")
+            print("TBD")
+
+        metamat_prob = False
+        artery_prob = False
 
     case _:
         print("Invalid problem choice")

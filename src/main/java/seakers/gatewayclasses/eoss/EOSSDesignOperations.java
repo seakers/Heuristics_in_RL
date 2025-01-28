@@ -338,6 +338,10 @@ public class EOSSDesignOperations extends DesignOperations {
         return designMetrics;
     }
 
+    public void resetEvaluationCount() {
+        this.evaluationCount = 0;
+    }
+
     public void operate() {
         ArrayList<Integer> newDesignDecisions = new ArrayList<>();
 
