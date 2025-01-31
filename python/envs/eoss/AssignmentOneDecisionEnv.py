@@ -32,13 +32,13 @@ class AssignmentOneDecisionEnv(gym.Env):
         self.instr_names = self.eoss_support.get_instr_names()
         self.orbit_names = self.eoss_support.get_orbit_names()
 
-        n_states = len(self.instr_names)*len(self.orbit_names)
+        self.n_states = len(self.instr_names)*len(self.orbit_names)
 
         # Action space: defined by 2 possible actions (0 or 1)
         self.action_space = spaces.Discrete(2, start=0)    
 
         # State space: defined by n_states design decisions representing complete designs
-        nvec = np.zeros(n_states)
+        nvec = np.zeros(self.n_states)
         nvec.fill(3) # Total n_states number of decisions, each with 3 possibilities (0, 1, 2)
         if self.include_weights_in_state:
             self.observation_space = spaces.Dict(
@@ -61,7 +61,7 @@ class AssignmentOneDecisionEnv(gym.Env):
 
         # Counting number of steps
         self.step_number = 0
-        self.max_steps = n_states
+        self.max_steps = self.n_states
         self.current_nfe_val = 0
 
     def reset(self, seed=None, options=None):
@@ -118,6 +118,9 @@ class AssignmentOneDecisionEnv(gym.Env):
     
     def get_isdone(self):
         return self.is_done
+    
+    def get_n_states(self):
+        return self.n_states
     
     def render_state(self, axes, orbit_instr_map, state):
 

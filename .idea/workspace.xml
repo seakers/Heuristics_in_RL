@@ -47,6 +47,9 @@
       </state>
     </system>
   </component>
+  <component name="FavoritesManager">
+    <favorites_list name="heuristicsinrl" />
+  </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
@@ -64,7 +67,10 @@
   <component name="ProjectId" id="2YPNjRZeA75TLFQzhJoG81eCpXE" />
   <component name="PropertiesComponent">
     <property name="last_opened_file_path" value="$PROJECT_DIR$/../EOSS/EOSS-AIAA" />
-    <property name="settings.editor.selected.configurable" value="preferences.externalDependencies" />
+    <property name="project.structure.last.edited" value="Project" />
+    <property name="project.structure.proportion" value="0.0" />
+    <property name="project.structure.side.proportion" value="0.0" />
+    <property name="settings.editor.selected.configurable" value="reference.settingsdialog.project.gradle" />
   </component>
   <component name="RecentsManager">
     <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
@@ -86,7 +92,7 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Application.GatewayMainClass">
+  <component name="RunManager" selected="Gradle.Heuristics in RL [clean]">
     <configuration name="GatewayMainClass" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="seakers.GatewayMainClass" />
       <module name="heuristicsinrl.main" />

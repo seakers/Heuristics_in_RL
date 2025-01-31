@@ -117,6 +117,9 @@ class AssignmentProblemEnv(gym.Env):
     def get_isdone(self):
         return self.is_done
     
+    def get_n_states(self):
+        return self.n_states
+    
     def render_state(self, axes, orbit_instr_map, state):
 
         #TODO

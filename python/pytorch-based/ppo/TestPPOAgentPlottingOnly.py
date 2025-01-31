@@ -42,7 +42,7 @@ new_reward = data["Use new problem formulation"]
 include_weights = data["Include weights in state"]
 
 ## Load problem parameters from config file
-problem_choice = 1 # 1 - Metamaterial problem, 2 - EOSS problem
+problem_choice = 2 # 1 - Metamaterial problem, 2 - EOSS problem
 
 match problem_choice:
     case 1:
@@ -141,6 +141,8 @@ match problem_choice:
         metamat_prob = False
         artery_prob = False
 
+        plot_obj_names = ["Science","Lifecycle Cost"]
+
     case _:
         print("Invalid problem choice")
 
@@ -148,20 +150,22 @@ current_save_path = os.path.join(save_path, "run " + str(run_num))
 
 #print(device_lib.list_local_devices())
 
-## find number of actions
-n_action_vals = n_states + n_heurs_used # number of actions = number of design variables (an action corresponds to flipping the corresponding bit of the binary design decision)
-n_actions = 1
-
 # Load Keras Network
 nfe_agent_ext = "final" # final or "ep" + str(nfe)
 
 file_name = "RL_execution_results_ppo_"
 file_name += str(run_num)
 
-if artery_prob:
-    file_name += "_artery"
+if problem_choice == 1:
+    if artery_prob:
+        file_name += "_artery"
+    else:
+        file_name += "_eqstiff"
 else:
-    file_name += "_eqstiff"
+    if assign_prob:
+        file_name += "_assign"
+    else:
+        file_name += "_partition"
 
 file_name += "_" + nfe_agent_ext
 
@@ -186,13 +190,17 @@ with tqdm(total=max_steps) as pbar:
 
             if step == 0:
                 objs = np.zeros(len(obj_names))
-                prev_constrs = np.zeros(len(constr_names))
+                if metamat_prob:
+                    prev_constrs = np.zeros(len(constr_names))
+                else:
+                    prev_constrs = []
 
                 for i in range(len(obj_names)):
                     objs[i] = float(lines[obj_names[i]])
 
-                for j in range(len(constr_names)):
-                    prev_constrs[j] = float(lines[constr_names[j]])
+                if metamat_prob:
+                    for j in range(len(constr_names)):
+                        prev_constrs[j] = float(lines[constr_names[j]])
 
                 # Plot initial state objectives
                 obj1_prev = objs[0]
@@ -204,7 +212,7 @@ with tqdm(total=max_steps) as pbar:
                     obj1_prev = 0.0
 
                 ## Plotting current agent step
-                if np.all(prev_constrs == 0):
+                if np.all(prev_constrs == 0) or (len(prev_constrs) == 0):
                     prev_color = 'green'
                 else:
                     prev_color = 'red'
@@ -235,13 +243,17 @@ with tqdm(total=max_steps) as pbar:
             else: # All other steps
 
                 objs = np.zeros(len(obj_names))
-                new_constrs = np.zeros(len(constr_names))
+                if metamat_prob:
+                    new_constrs = np.zeros(len(constr_names))
+                else:
+                    new_constrs = []
 
                 for i in range(len(obj_names)):
                     objs[i] = float(lines[obj_names[i]])
 
-                for j in range(len(constr_names)):
-                    new_constrs[j] = float(lines[constr_names[j]])
+                if metamat_prob:
+                    for j in range(len(constr_names)):
+                        new_constrs[j] = float(lines[constr_names[j]])
 
                 obj1_next = objs[0]
                 obj2_next = objs[1]
@@ -249,7 +261,7 @@ with tqdm(total=max_steps) as pbar:
                 if math.isnan(obj1_next):
                     obj1_next = 0.0
 
-                if np.all(new_constrs == 0):
+                if np.all(new_constrs == 0) or (len(new_constrs) == 0):
                     new_color = 'green'
                 else:
                     new_color = 'red'

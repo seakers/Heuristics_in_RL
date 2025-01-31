@@ -243,7 +243,6 @@ match problem_choice:
         metamat_prob = False
         artery_prob = False
 
-
     case _:
         print("Invalid problem choice")
 

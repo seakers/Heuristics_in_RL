@@ -37,6 +37,8 @@ from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
 from envs.metamaterial.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
 from envs.metamaterial.ArteryOneDecisionEnv import ArteryOneDecisionEnv
 from envs.metamaterial.EqualStiffnessOneDecisionEnv import EqualStiffnessOneDecisionEnv
+from envs.eoss.AssignmentOneDecisionEnv import AssignmentOneDecisionEnv
+from envs.eoss.AssignmentProblemEnv import AssignmentProblemEnv
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -69,7 +71,7 @@ new_reward = data["Use new problem formulation"]
 include_weights = data["Include weights in state"]
 
 ## Define problem environment
-problem_choice = 1 # 1 - Metamaterial problem, 2 - EOSS problem
+problem_choice = 2 # 1 - Metamaterial problem, 2 - EOSS problem
 
 match problem_choice:
     case 1:
@@ -171,14 +173,6 @@ match problem_choice:
     case _:
         print("Invalid problem choice")
 
-## find number of actions
-n_action_vals = n_states + n_heurs_used # number of actions = number of design variables (an action corresponds to flipping the corresponding bit of the binary design decision)
-n_actions = 1
-
-max_steps = 100
-if one_dec:
-    max_steps = n_states
-
 ## Access java gateway and pass parameters to operations class instance
 gateway = JavaGateway(gateway_parameters=GatewayParameters(auto_convert=True))
 operations_instance = gateway.entry_point.getOperationsInstance()
@@ -188,19 +182,31 @@ nfe_agent_ext = "final" # final or "ep" + str(nfe)
 model_filename = "learned_actor_network_" + nfe_agent_ext
 #seed = 25
 
-if artery_prob:
-    model_filename += "_artery"
+if problem_choice == 1:
+    if artery_prob:
+        model_filename += "_artery"
+    else:
+        model_filename += "_eqstiff"
 else:
-    model_filename += "_eqstiff"
+    if assign_prob:
+        model_filename += "_assign"
+    else:
+        model_filename += "_partition"
 model_filename += ".pth"
 
 file_name = "RL_execution_results_ppo_"
 file_name += str(run_num)
 
-if artery_prob:
-    file_name += "_artery"
+if problem_choice == 1:
+    if artery_prob:
+        file_name += "_artery"
+    else:
+        file_name += "_eqstiff"
 else:
-    file_name += "_eqstiff"
+    if assign_prob:
+        file_name += "_assign"
+    else:
+        file_name += "_partition"
 
 file_name += "_" + nfe_agent_ext
 
@@ -292,7 +298,17 @@ if problem_choice == 1:
             base_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
             env = TransformedEnv(base_env, RewardSum())
 else:
-    print("TBD")
+    if assign_prob:
+        if one_dec:
+            base_env = GymWrapper(AssignmentOneDecisionEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+            env = TransformedEnv(base_env, RewardSum())
+            n_states = env.base_env.unwrapped.get_n_states()
+        else:
+            base_env = GymWrapper(AssignmentProblemEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+            env = TransformedEnv(base_env, RewardSum())
+            n_states = env.base_env.unwrapped.get_n_states()
+    else:
+        print("TBD")
 
 check_env_specs(env)
 
@@ -325,6 +341,10 @@ if not one_dec:
 else:
     n_trajs = 100 # This corresponds to the number of designs generated for the one decision environments
 
+max_steps = 100
+if one_dec:
+    max_steps = n_states
+        
 traj_start = True
 
 csv_rows = []
@@ -370,12 +390,12 @@ with tqdm(total=n_trajs) as pbar_traj:
                     next_true_objs, next_objs, next_constrs, next_heurs  = result_logger.evaluate_design(metamat_prob=metamat_prob, artery_prob=artery_prob, design=next_state)
 
                     ## Plotting current agent step
-                    if np.all(constrs == 0):
+                    if np.all(constrs == 0) or (len(constrs) == 0):
                         prev_color = 'green'
                     else:
                         prev_color = 'red'
 
-                    if np.all(next_constrs == 0):
+                    if np.all(next_constrs == 0) or (len(next_constrs) == 0):
                         new_color = 'green'
                     else:
                         new_color = 'red'
@@ -438,8 +458,9 @@ with tqdm(total=n_trajs) as pbar_traj:
                     for i in range(len(obj_names)):
                         row[obj_names[i]] = true_objs[i]
 
-                    for j in range(len(constr_names)):
-                        row[constr_names[j]] = constrs[j]
+                    if metamat_prob:
+                        for j in range(len(constr_names)):
+                            row[constr_names[j]] = constrs[j]
 
                     for k in range(len(heur_names)):
                         row[heur_names[k]] = heurs[k]
@@ -496,8 +517,9 @@ with tqdm(total=n_trajs) as pbar_traj:
             for i in range(len(obj_names)):
                 row[obj_names[i]] = true_objs[i]
 
-            for j in range(len(constr_names)):
-                row[constr_names[j]] = constrs[j]
+            if metamat_prob:
+                for j in range(len(constr_names)):
+                    row[constr_names[j]] = constrs[j]
 
             for k in range(len(heur_names)):
                 row[heur_names[k]] = heurs[k]
@@ -521,7 +543,8 @@ if one_dec:
 else:
     field_names = ['Step Number', 'State', 'Action', 'Reward']
 field_names.extend(obj_names)
-field_names.extend(constr_names)
+if metamat_prob:
+    field_names.extend(constr_names)
 field_names.extend(heur_names)
 
 with open(os.path.join(current_save_path, file_name), 'w') as csvfile:
