@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 class EqualStiffnessProblemEnv(gym.Env):
-    def __init__(self, operations_instance, n_actions, n_states, model_sel, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used, render_steps, new_reward, obj_max, include_wts_in_state):
+    def __init__(self, operations_instance, use_python_model, n_actions, n_states, model_sel, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, save_path, obj_names, constr_names, heur_names, heurs_used, render_steps, new_reward, obj_max, include_wts_in_state):
 
         super(EqualStiffnessProblemEnv, self).__init__()
 
@@ -49,7 +49,7 @@ class EqualStiffnessProblemEnv(gym.Env):
         else:
             self.observation_space = spaces.MultiBinary(n_states)
 
-        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=c_target_delta, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space, include_weights=include_wts_in_state)
+        self.metamat_support = MetamaterialSupport(sel=sel, operations_instance=operations_instance, use_python_model=use_python_model, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=c_target_delta, nuc_fac=nuc_fac, n_vars=n_states, model_sel=model_sel, artery_prob=False, save_path=save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, new_reward=new_reward, obj_max=obj_max, obs_space=self.observation_space, include_weights=include_wts_in_state)
 
         # Initial state
         self.start_pos = self.observation_space.sample()
@@ -79,7 +79,7 @@ class EqualStiffnessProblemEnv(gym.Env):
         new_pos = self.metamat_support.modify_by_action(self.current_pos, action)
         
         # Get action members
-        self.action_members, self.member_added = self.metamat_support.obtain_action_members()
+        self.action_members, self.member_added = self.metamat_support.obtain_action_members(current_design=self.current_pos, new_design=new_pos)
 
         # Compute Reward Function
         if self.new_reward:

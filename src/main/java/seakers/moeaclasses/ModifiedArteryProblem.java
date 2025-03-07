@@ -12,8 +12,8 @@ public class ModifiedArteryProblem extends ConstantRadiusArteryProblem {
 
     private double feasibleStiffnessDelta;
 
-    public ModifiedArteryProblem(String savePath, int modelSelection, int numVariables, int numHeurObjectives, int numHeurConstraints, double rad, double sideLength, double E, double sideNodeNum, double nucFac, double targetStiffnessRatio, MatlabEngine eng, boolean[][] constrainHeuristics, double feasibleStiffnessDelta) {
-        super(savePath, modelSelection, numVariables, numHeurObjectives, numHeurConstraints, rad, sideLength, E, sideNodeNum, nucFac, targetStiffnessRatio, eng, constrainHeuristics);
+    public ModifiedArteryProblem(String savePath, int modelSelection, double penaltyWeight, int numVariables, int numHeurObjectives, int numHeurConstraints, double rad, double sideLength, double E, double sideNodeNum, double nucFac, double targetStiffnessRatio, MatlabEngine eng, boolean[][] constrainHeuristics, double feasibleStiffnessDelta) {
+        super(savePath, modelSelection, penaltyWeight, numVariables, numHeurObjectives, numHeurConstraints, rad, sideLength, E, sideNodeNum, nucFac, targetStiffnessRatio, eng, constrainHeuristics);
 
         this.feasibleStiffnessDelta = feasibleStiffnessDelta;
     }

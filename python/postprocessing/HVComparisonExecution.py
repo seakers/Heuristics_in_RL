@@ -10,45 +10,87 @@ from Utils.mOORunStatistics import MOORunStatistics
 from Utils.mOOCaseStatistics import MOOCaseStatistics
 import numpy as np
 import os
+import json
 import statistics
 import matplotlib.pyplot as plt
 
-results_dir = 'C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\python\\keras-based\\results'
-problem_dir = 'EqStiff\\' # EqStiff, Artery
+results_dir = 'C:\\SEAK Lab\\SEAK Lab Github\\Heuristics in RL\\python\\pytorch-based\\results\\'
+problem_choice = 2 # 1 - Metamaterial problem, 2 - EOSS problem
 
-constr_names = ''
-obj_names = ['TrueObjective1','TrueObjective2']
-heuristic_names = ['P','N','O','I']
-#obj_names = ['Normalized Stiffness', 'Normalized Volume Fraction']
+if problem_choice == 1:
+    f_prob = open('.\\envs\\metamaterial\\problem-config.json')
+    data_prob = json.load(f_prob)
 
-#constr_names = ['FeasibilityViolation','ConnectivityViolation','StiffnessRatioViolation']
-constr_names = ['ConnectivityViolation','StiffnessRatioViolation']
+    artery_prob = data_prob["Solve artery problem"] # If true -> artery problem, false -> equal stiffness problem
+    one_dec = data_prob["Use One Decision Environment"] # If true -> {problem}OneDecisionEnvironment.py, false -> {problem}ProblemEnvironment.py
 
-# Set parameters for DataHandler.get_objectives() method
-objs_norm_num = [0, 0] 
-objs_norm_den = [1.8162e6, 1] # Youngs modulus used to normalize stiffness
-objs_max = [False, False] 
+    if artery_prob:
+        problem_dir = 'Artery\\' # EqStiff, Artery
 
-# To be set to true if negative of any objective is to be used to compute HV, 
-# first objective (stiffness) is to be maximized and second objective (volume fraction/deviation) is to be minimized, however -normalized stiffness is stored in csv so -1 multiplication is not required
-true_obj_names = [r'$C_{22}$',r'$v_f$']
-if problem_dir == 'Artery\\':
-    #obj_names = ['Normalized Stiffness', 'Normalized Deviation']
-    constr_names = ['FeasibilityViolation','ConnectivityViolation']
-    # Set parameters for DataHandler.get_objectives() method
-    objs_norm_num = [2e5, 0]
-    objs_norm_den = [1e6, 1]
-    true_obj_names = [r'$\frac{C_{11}}{v_f}$',r'deviation']
+        # Set parameters for DataHandler.get_objectives() method
+        objs_norm_num = [2e5, 0]
+        objs_norm_den = [1e6, 1]
+
+        true_obj_names = [r'$\frac{C_{11}}{v_f}$',r'deviation']
+
+    else:
+        problem_dir = 'EqStiff\\' # EqStiff, Artery
+        
+        # Set parameters for DataHandler.get_objectives() method
+        objs_norm_num = [0, 0] 
+        objs_norm_den = [1.8162e6, 1] # Youngs modulus used to normalize stiffness
+
+        true_obj_names = [r'$C_{22}$',r'$v_f$']
+
+    constr_names = data_prob["Constraint names"]
+    obj_names = data_prob["Objective names"]
+    heuristic_names = data_prob["Heuristic abbreviations"]
     
-n_runs = 20
+    objs_max = data_prob["Objective maximized"]
+    # To be set to true if negative of any objective is to be used to compute HV, 
+    # first objective (stiffness) is to be maximized and second objective (volume fraction/deviation) is to be minimized, however -normalized stiffness is stored in csv so -1 multiplication is not required
+else:
+    f_prob = open('.\\envs\\eoss\\problem-config.json')
+    data_prob = json.load(f_prob)
+
+    assign_prob = data_prob["Solve assigning problem"] # If true -> assigning problem, false -> partitioning problem
+    one_dec = data_prob["Use One Decision Environment"] # If true -> {problem}OneDecisionEnvironment.py, false -> {problem}ProblemEnvironment.py
+
+    if assign_prob:
+        problem_dir = 'Assign\\'
+
+        # Set parameters for DataHandler.get_objectives() method
+        objs_norm_num = [0, 0]
+        objs_norm_den = [0.425, 2.5e4]
+
+    else:
+        problem_dir = 'Partition\\'
+
+        # Set parameters for DataHandler.get_objectives() method
+        objs_norm_num = [0, 0]
+        objs_norm_den = [0.4, 7250]
+
+    true_obj_names = [r'$Science$',r'$Cost']
+
+    constr_names = ''
+    obj_names = data_prob["Objective names"]
+    heuristic_names = data_prob["Heuristic abbreviations"]
+    
+    objs_max = data_prob["Objective maximized"]
+    # To be set to true if negative of any objective is to be used to compute HV, 
+    # first objective (stiffness) is to be maximized and second objective (volume fraction/deviation) is to be minimized, however -normalized stiffness is stored in csv so -1 multiplication is not required
+    
+n_runs = 3
 
 case_bools = {} # Last integer signifies whether eps-MOEA, AOS or PPO-H is used (1, 2 or 3 respectively) 
 eps_moea_bools = [False for i in range(len(heuristic_names))] # No heuristics enforced
 eps_moea_bools.append(1)
 case_bools['Eps. MOEA'] = eps_moea_bools
+
 # aos_case_bools = [True for i in range(len(heuristic_names))]
 # aos_case_bools.append(2)
 # case_bools['AOS'] =  aos_case_bools # All heuristics enforced through AOS
+
 ppo_moea_bools = [False for i in range(len(heuristic_names))]
 ppo_moea_bools.append(3)
 case_bools['PPO-H'] = ppo_moea_bools
@@ -64,8 +106,17 @@ plot_markers['Eps. MOEA'] = '*'
 plot_markers['PPO-H'] = '+'
 
 ## Sample NFEs
+f_ppo = open('.\\pytorch-based\\ppo\\ppo-config.json')
+data_ppo = json.load(f_ppo)
+original_max_train_episodes = data_ppo["Number of training episodes"] # number of training episodes
+episode_training_trajs = data_ppo["Number of trajectories used for training per episode"] # number of trajectories sampled in each iteration to train the actor and critic
+trajectory_collect_steps = data_ppo["Number of steps in a collected trajectory"] # number of steps in each trajectory
+
 nfe_samples = []
-max_nfe = 6000 
+if one_dec:
+    max_nfe = original_max_train_episodes*episode_training_trajs
+else:
+    max_nfe = original_max_train_episodes*episode_training_trajs*trajectory_collect_steps
 
 # sample nfes are divided into increments of 50 and 100, computed such that the total number of samples is 100
 n_sample_50 = int(1500/50)
@@ -90,10 +141,16 @@ for case_key in list(case_bools.keys()):
     heurs_incorporated = case_bools[case_key]
     print('Reading Case: ' + case_key)
 
-    if problem_dir == 'EqStiff\\':
-        filename_prob = 'eqstiff_'
+    if problem_choice == 1:
+        if artery_prob:
+            filename_prob = 'artery_'
+        else:
+            filename_prob = 'eqstiff_'
     else:
-        filename_prob = 'artery_'
+        if assign_prob:
+            filename_prob = 'assign_'
+        else:
+            filename_prob = 'partition_'
     
     heurs_dir = ''
     for i in range(len(heurs_incorporated) - 1):
@@ -116,7 +173,10 @@ for case_key in list(case_bools.keys()):
         current_run_constrs = []
         print('Reading Run: ' + str(i))
 
-        current_filepath = results_dir + problem_dir + alg_dir + heurs_dir + 'run ' + str(i) + '\\'
+        if alg_dir == 'PPO-H\\':
+            current_filepath = results_dir + problem_dir + alg_dir + heurs_dir + 'run ' + str(i) + '\\'
+        else:
+            current_filepath = results_dir + problem_dir + alg_dir + heurs_dir
             
         if heurs_incorporated[-1] == 1:
             run_filename = 'EpsilonMOEA_' + str(i) + '_allSolutions.csv'
@@ -259,25 +319,27 @@ pf_nfe_markers = ["o", "s", "^", "v", "+"]
 for case_key in list(case_objs.keys()):
     print('Plotting Pareto Fronts for Case: ' + case_key)
     pfs_current_case = case_pfs[case_key]
-    nfes_current_case = case_nfes[case_key]
     for run_key in list(pfs_current_case.keys()):
         print('Plotting Pareto Fronts for ' + run_key)
         pfs_current_run = pfs_current_case[run_key]
-        nfes_current_run = nfes_current_case[run_key]
+        nfe_keys = list(pfs_current_run.keys())
 
-        nfes_idx_plotting = np.linspace(start=0, end=len(nfes_current_run), num=5)
+        nfes_idx_plotting = np.linspace(start=0, stop=len(nfe_keys)-1, num=n_nfes, dtype=int)
         idx_counter = 0
 
+        plt.figure()
         for nfe_idx in nfes_idx_plotting:
-            pfs_current_nfe = pfs_current_run['nfe:'+str(nfes_current_run[nfe_idx])]
-            plt.figure()
-            plt.scatter(pfs_current_nfe[0,:], pfs_current_nfe[1,:], marker=pf_nfe_markers[idx_counter], label='NFE:'+str(nfes_current_run[nfe_idx]))
-            plt.xlabel(true_obj_names[0])
-            plt.ylabel(true_obj_names[1])
-            plt.title('Pareto Fronts')
-            plt.legend(loc='best')
-            plt.savefig(results_dir + problem_dir + alg_dir + heurs_dir + 'run ' + str(i) + '\\' + 'pareto_fronts.png', dpi=600)
+            pfs_current_nfe = pfs_current_run[nfe_keys[nfe_idx]]
+            if pfs_current_nfe.shape[0] > 0:
+                x_vals = np.multiply(pfs_current_nfe[:,0], -1) # All problems have first objectives maximized, but negative values of the objectives are stored
+                y_vals = pfs_current_nfe[:,1]
+                plt.scatter(x_vals, y_vals, marker=pf_nfe_markers[idx_counter], label=nfe_keys[nfe_idx])
             idx_counter += 1
+        plt.xlabel(true_obj_names[0])
+        plt.ylabel(true_obj_names[1])
+        plt.title('Pareto Fronts')
+        plt.legend(loc='best')
+        plt.savefig(results_dir + problem_dir + '\\' + 'pareto_fronts_' + case_key + '_' + run_key + '.png', dpi=600)
 
 ## Normalize Pareto Fronts 
 print('Normalizing Pareto Front objectives')
@@ -353,6 +415,7 @@ plt.ylabel(r'Hypervolume',fontsize=12)
 plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)    
 plt.legend(loc='upper center', bbox_to_anchor=(0.5,1.15), ncol=2, borderaxespad=0, prop={"size":12})
+plt.savefig(results_dir + problem_dir + '\\' + 'HV_plot.png', dpi=600)
 
 # Plot hypervolume stats vs NFE between two NFE for cases 
 if problem_dir == 'Artery\\':
@@ -364,6 +427,7 @@ if problem_dir == 'Artery\\':
     plt.ylabel(r'Hypervolume',fontsize=12)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)    
+    plt.savefig(results_dir + problem_dir + '\\' + 'HV_zoomed.png', dpi=600)
 
 # Plot CDF for NFE vs NFE for cases
 fig3 = plt.figure()
@@ -380,6 +444,7 @@ plt.ylabel(r'Frac. runs achieving 80% max. HV',fontsize=12)
 plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)    
 plt.legend(loc='upper center', bbox_to_anchor=(0.5,1.15), ncol=2, borderaxespad=0, prop={"size":12})
+plt.savefig(results_dir + problem_dir + '\\' + 'cdf_for_nfe.png', dpi=600)
 
 ## Plot number of fully feasible designs vs NFE for cases (only for constrained optimization problems)
 if not constr_names == '':
@@ -414,3 +479,4 @@ if not constr_names == '':
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)    
     plt.legend(loc='upper center', bbox_to_anchor=(0.5,1.15), ncol=2, borderaxespad=0, prop={"size":12})
+    plt.savefig(results_dir + problem_dir + '\\' + 'num_fullsat.png', dpi=600)

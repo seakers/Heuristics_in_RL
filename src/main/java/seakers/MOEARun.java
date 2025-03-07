@@ -251,17 +251,20 @@ public class MOEARun {
                 int numVariables = totalNumberOfMembers - numberOfRepeatableMembers;
 
                 double[][] globalNodePositions;
+                double penaltyWeight;
                 if (arteryProblem) {
+                    penaltyWeight = 10; // Weight for interior penalty (if applicable)
                     //problem = new ConstantRadiusArteryProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained);
                     //globalNodePositions = ((ConstantRadiusArteryProblem) problem).getNodalConnectivityArray();
 
-                    problem = new ModifiedArteryProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained, feasibleStiffnessDelta);
+                    problem = new ModifiedArteryProblem(saveDir, modelChoice, penaltyWeight, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained, feasibleStiffnessDelta);
                     globalNodePositions = ((ModifiedArteryProblem) problem).getNodalConnectivityArray();
                 } else {
+                    penaltyWeight = 0.05; // Weight for interior penalty (if applicable)
                     //problem = new ConstantRadiusTrussProblem2(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained);
                     //globalNodePositions = ((ConstantRadiusTrussProblem2) problem).getNodalConnectivityArray();
 
-                    problem = new ModifiedEqualStiffnessProblem(saveDir, modelChoice, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained, feasibleStiffnessDelta);
+                    problem = new ModifiedEqualStiffnessProblem(saveDir, modelChoice, penaltyWeight, numVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, printableRadius, printableSideLength, printableModulus, sideNodeNumber, nucFactor, targetStiffnessRatio, engine, heuristicsConstrained, feasibleStiffnessDelta);
                     globalNodePositions = ((ModifiedEqualStiffnessProblem) problem).getNodalConnectivityArray();
                 }
                 variableNames = new String[problem.getNumberOfVariables()];
@@ -404,13 +407,16 @@ public class MOEARun {
                     evaluator = new seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator(considerFeasibility, interferingInstrumentsMap, instrumentSynergyMap, dcThreshold, massThreshold, packEffThreshold);
                 }
 
+                // Weight for interior penalty (if applicable)
+                double penaltyWeight = 0.1;
+
                 ArchitectureEvaluationManager evaluationManager = new ArchitectureEvaluationManager(params, evaluator);
                 evaluationManager.init(1);
 
                 if (assigningProblem) {
-                    problem = new AssigningProblem(new int[]{1}, params.getProblemName(), evaluationManager, (ArchitectureEvaluator) evaluator, params, interferingInstrumentsMap, instrumentSynergyMap, dcThreshold, massThreshold, packEffThreshold, instrCountThreshold, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
+                    problem = new AssigningProblem(new int[]{1}, params.getProblemName(), evaluationManager, (ArchitectureEvaluator) evaluator, params, interferingInstrumentsMap, instrumentSynergyMap, dcThreshold, massThreshold, packEffThreshold, instrCountThreshold, penaltyWeight, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
                 } else {
-                    problem = new PartitioningProblem(params.getProblemName(), evaluationManager, params, interferingInstrumentsMap, instrumentSynergyMap, dcThreshold, massThreshold, packEffThreshold, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
+                    problem = new PartitioningProblem(params.getProblemName(), evaluationManager, params, interferingInstrumentsMap, instrumentSynergyMap, dcThreshold, massThreshold, packEffThreshold, penaltyWeight, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
                 }
 
                 if (!assigningProblem) {

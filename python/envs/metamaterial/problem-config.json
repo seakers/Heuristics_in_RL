@@ -2,6 +2,8 @@
     "Solve artery problem": false,
     "Use One Decision Environment": true,
 
+    "Use Python model": true,
+
     "Model selection": 1,
 
     "Member radius in m": 250e-6,
@@ -16,7 +18,7 @@
     "Heuristic abbreviations": ["p","n","o","i"],
     "Heuristics used": [false, false, false, false],
 
-    "Constraint names": ["ConnectivityViolation","StiffnessRatioViolation"],
+    "Constraint names": ["FeasibilityViolation","StiffnessRatioViolation"],
     "Feasible stiffness delta": 0.01,
         
     "Render steps": false

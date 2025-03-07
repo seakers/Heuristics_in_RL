@@ -163,12 +163,17 @@ public class MetamaterialDesignOperations extends DesignOperations {
         this.numberOfHeuristicObjectives = numberOfHeuristicObjectives;
         this.numberOfHeuristicConstraints = numberOfHeuristicConstraints;
 
+        // Penalty weight for interior penalty (if applicable)
+        double penaltyWeight;
+
         double[][] globalNodePositions;
         if (this.arteryProblem) {
-            this.problem = new ConstantRadiusArteryProblem(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
+            penaltyWeight = 10;
+            this.problem = new ConstantRadiusArteryProblem(this.savePath, this.modelSelection, penaltyWeight, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
             globalNodePositions = ((ConstantRadiusArteryProblem) this.problem).getNodalConnectivityArray();
         } else {
-            this.problem = new ConstantRadiusTrussProblem2(this.savePath, this.modelSelection, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
+            penaltyWeight = 0.05;
+            this.problem = new ConstantRadiusTrussProblem2(this.savePath, this.modelSelection, penaltyWeight, this.numberOfVariables, numberOfHeuristicObjectives, numberOfHeuristicConstraints, this.radius, this.sideElementLength, this.YoungsModulus, this.sideNodeNumber, this.nucFac, this.targetStiffnessRatio, engine, heuristicsConstrained);
             globalNodePositions = ((ConstantRadiusTrussProblem2) this.problem).getNodalConnectivityArray();
         }
 

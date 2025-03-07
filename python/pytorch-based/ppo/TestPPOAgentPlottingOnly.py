@@ -42,7 +42,7 @@ new_reward = data["Use new problem formulation"]
 include_weights = data["Include weights in state"]
 
 ## Load problem parameters from config file
-problem_choice = 2 # 1 - Metamaterial problem, 2 - EOSS problem
+problem_choice = 1 # 1 - Metamaterial problem, 2 - EOSS problem
 
 match problem_choice:
     case 1:
@@ -225,7 +225,7 @@ with tqdm(total=max_steps) as pbar:
                 else:
                     obj_weight0 = np.round(float(lines['Objective Weight0']), decimals=2)
                     obj_weight1 = np.round(1.0 - obj_weight0, decimals=2)
-                    ax.text(obj1_prev+1e-4*obj1_prev, obj2_prev+1e-4*obj2_prev, "Wts.: [" + str(obj_weight0) + ", " + str(obj_weight1) + "], r: " + str(reward), wrap=True)
+                    wts_text = ax.text(obj1_prev+1e-4*obj1_prev, obj2_prev+1e-4*obj2_prev, "Wts.: [" + str(obj_weight0) + ", " + str(obj_weight1) + "], r: " + str(reward), wrap=True)
                 ax.set_xlabel(plot_obj_names[0], fontsize=12)
                 ax.set_ylabel(plot_obj_names[1], fontsize=12)
 
@@ -236,6 +236,9 @@ with tqdm(total=max_steps) as pbar:
 
                 fig.savefig(current_img_name)
                 plt.close(fig)
+
+                if one_dec:
+                    wts_text.set_visible(False)
 
                 im = plt.imshow(plt.imread(current_img_name), animated=True)
 
@@ -275,7 +278,7 @@ with tqdm(total=max_steps) as pbar:
 
                     obj_weight0 = np.round(float(lines['Objective Weight0']), decimals=2)
                     obj_weight1 = np.round(1.0 - obj_weight0, decimals=2)
-                    ax.text(obj1_next+1e-4*obj1_next, obj2_next+1e-4*obj2_next, "Wts.: [" + str(obj_weight0) + ", " + str(obj_weight1) + "], r: " + str(reward), wrap=True)
+                    wts_text = ax.text(obj1_next+1e-4*obj1_next, obj2_next+1e-4*obj2_next, "Wts.: [" + str(obj_weight0) + ", " + str(obj_weight1) + "], r: " + str(reward), wrap=True)
                 
                 if not one_dec:
                     # Plot arrow from initial to final state
@@ -299,6 +302,8 @@ with tqdm(total=max_steps) as pbar:
 
                 if not one_dec:
                     text_obj.set_visible(False)
+                else:
+                    wts_text.set_visible(False)
 
                 im = plt.imshow(plt.imread(current_img_name), animated=True)
 

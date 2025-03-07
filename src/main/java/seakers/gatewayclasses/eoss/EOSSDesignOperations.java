@@ -63,6 +63,15 @@ public class EOSSDesignOperations extends DesignOperations {
     private ArrayList<ArrayList<String>> currentDesignPayloads;
     private ArrayList<String> currentDesignOrbits;
     private ArrayList<Integer> newDesignDecisions;
+    private Boolean problemSet;
+    private Boolean considerFeasibilitySet;
+    private Boolean assigningProblemSet;
+    private Boolean heuristicsDeployedSet;
+    private Boolean objectiveNamesSet;
+    private Boolean heuristicNamesSet;
+    private Boolean paramsSet;
+    private Boolean instrumentsAndOrbitsSet;
+    private BaseParams params;
 
     /**
      * Constructor for EOSS operations class instance
@@ -77,184 +86,261 @@ public class EOSSDesignOperations extends DesignOperations {
     }
 
     // Run parameter setting methods before initializing problem instance parameter
-    public void setHeuristicThresholds(double dcThreshold, double massThreshold, double packEffThreshold, double instrCountThreshold) {
-        this.dutyCycleThreshold = dcThreshold;
-        this.massThreshold = massThreshold;
-        this.packingEfficiencyThreshold = packEffThreshold;
-        this.instrumentCountThreshold = instrCountThreshold;
-        //System.out.println("duty cycle threshold = " + dcThreshold);
-        //System.out.println("mass threshold = " + massThreshold);
-        //System.out.println("packing efficiency threshold = " + packEffThreshold);
-        //System.out.println("instrument count threshold = " + instrCountThreshold);
+    public void setHeuristicThresholds(double dcThreshold, double mThreshold, double packEffThreshold, double instrCountThreshold) {
+        if (this.dutyCycleThreshold == 0.0) {
+            this.dutyCycleThreshold = dcThreshold;
+            System.out.println("duty cycle threshold = " + dcThreshold);
+        }  else {
+            System.out.println("Duty cycle threshold already set");
+        }
+
+        if (this.massThreshold == 0.0) {
+            this.massThreshold = mThreshold;
+            System.out.println("mass threshold = " + mThreshold);
+        } else {
+            System.out.println("Mass threshold already set");
+        }
+
+        if (this.packingEfficiencyThreshold == 0.0) {
+            this.packingEfficiencyThreshold = packEffThreshold;
+            System.out.println("packing efficiency threshold = " + packEffThreshold);
+        } else {
+            System.out.println("Packing efficiency threshold already set");
+        }
+
+        if (this.instrumentCountThreshold == 0.0) {
+            this.instrumentCountThreshold = instrCountThreshold;
+            System.out.println("instrument count threshold = " + instrCountThreshold);
+        } else {
+            System.out.println("Instrument count threshold already set");
+        }
     }
 
     // Run parameter setting methods before initializing problem instance parameter
     public void setConsiderFeasibility(boolean considerFeasibility) {
-        this.considerFeasibility = considerFeasibility;
-        //System.out.println("consider feasibility = " + considerFeasibility);
+        if (this.considerFeasibilitySet == null) {
+            this.considerFeasibility = considerFeasibility;
+            System.out.println("consider feasibility = " + considerFeasibility);
+            this.considerFeasibilitySet = true;
+        } else {
+            System.out.println("consider feasibility already set");
+        }
     }
 
     // Run parameter setting methods before initializing problem instance parameter
     public void setAssigningProblem(boolean assigningProblem) {
-        this.assigningProblem = assigningProblem;
-        //System.out.println("assigning problem = " + assigningProblem);
+        if (this.assigningProblemSet == null) {
+            this.assigningProblem = assigningProblem;
+            System.out.println("assigning problem = " + assigningProblem);
+            this.assigningProblemSet = true;
+        } else {
+            System.out.println("assigning problem already set");
+        }
     }
 
 
     // Run parameter setting methods before initializing problem instance parameter
     public void setResourcesPath(String resourcesPath) {
-        this.resourcesPath = resourcesPath;
-        //System.out.println("resources path = " + resourcesPath);
+        if (this.resourcesPath == null) {
+            this.resourcesPath = resourcesPath;
+            System.out.println("resources path = " + resourcesPath);
+        } else {
+            System.out.println("resources path already set");
+        }
     }
 
     // Setting method for heuristics deployed
     public void setHeuristicsDeployed(ArrayList<Boolean> heuristicsDeployed) {
-        this.heuristicsDeployed = heuristicsDeployed;
-        //System.out.println("Heuristics deployed = " + heuristicsDeployed);
+        if (this.heuristicsDeployedSet == null) {
+            this.heuristicsDeployed = heuristicsDeployed;
+            System.out.println("Heuristics deployed = " + heuristicsDeployed);
+            this.heuristicsDeployedSet = true;
+        } else {
+            System.out.println("Heuristics deployed already set");
+        }
     }
 
     // Setting methods for data saving
     public void setObjectiveNames(ArrayList<String> objectiveNames) {
-        this.objectiveNames = objectiveNames;
-        //System.out.println("Objective Names = " + objectiveNames);
+        if (this.objectiveNamesSet == null) {
+            this.objectiveNames = objectiveNames;
+            System.out.println("Objective Names = " + objectiveNames);
+            this.objectiveNamesSet = true;
+        } else {
+            System.out.println("Objective Names already set");
+        }
     }
 
     public void setHeuristicNames(ArrayList<String> heuristicNames) {
-        this.heuristicNames = heuristicNames;
-        //System.out.println("heuristic names = " + heuristicNames);
+        if (this.heuristicNamesSet == null) {
+            this.heuristicNames = heuristicNames;
+            System.out.println("heuristic names = " + heuristicNames);
+            this.heuristicNamesSet = true;
+        } else {
+            System.out.println("heuristic names already set");
+        }
     }
 
+    public void setParams() {
+        if (this.paramsSet == null) {
+            BaseParams params;
+            AbstractArchitectureEvaluator evaluator;
+            if (this.assigningProblem) {
+                params = new ClimateCentricAssigningParams(this.resourcesPath, "FUZZY-ATTRIBUTES", "test", "normal");
+            } else {
+                params = new ClimateCentricPartitioningParams(this.resourcesPath, "FUZZY-ATTRIBUTES", "test", "normal");
+            }
+            this.params = params;
+            this.paramsSet = true;
+        } else {
+            System.out.println("Params already set");
+        }
+
+    }
+
+    // Set after params have been set
+    public void setInstrumentAndOrbitNames() {
+        if (this.instrumentsAndOrbitsSet == null) {
+            this.instrumentNames = params.getInstrumentList();
+            this.orbitNames = params.getOrbitList();
+            this.instrumentsAndOrbitsSet = true;
+        } else {
+            System.out.println("Instruments and orbits already set");
+        }
+    }
+
+    // Set after params have been set
     public void setProblem() {
-        // Heuristic Enforcement Methods
-        /**
-         * dutyCycleConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         * instrumentOrbitRelationsConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         * interferenceConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         * packingEfficiencyConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         * spacecraftMassConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         * synergyConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         * instrumentCountConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
-         *
-         * if partitioning problem:
-         * heuristicsConstrained = [dutyCycleConstrained, instrumentOrbitRelationsConstrained, interferenceConstrained, packingEfficiencyConstrained, spacecraftMassConstrained, synergyConstrained]
-         * else:
-         * heuristicsConstrained = [dutyCycleConstrained, instrumentOrbitRelationsConstrained, interferenceConstrained, packingEfficiencyConstrained, spacecraftMassConstrained, synergyConstrained, instrumentCountConstrained]
-         */
-        boolean[] dutyCycleConstrained = {false, false, false, false, false, false};
-        boolean[] instrumentOrbitRelationsConstrained = {false, true, false, false, false, false};
-        boolean[] interferenceConstrained = {false, true, false, false, false, false};
-        boolean[] packingEfficiencyConstrained = {false, false, false, false, false, false};
-        boolean[] spacecraftMassConstrained = {false, true, false, false, false, false};
-        boolean[] synergyConstrained = {false, false, false, false, false, false};
-        boolean[] instrumentCountConstrained = {false, true, false, false, false, false}; // only for assigning problem
+        if (this.problemSet == null) {
+            // Heuristic Enforcement Methods
+            /**
+             * dutyCycleConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             * instrumentOrbitRelationsConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             * interferenceConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             * packingEfficiencyConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             * spacecraftMassConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             * synergyConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             * instrumentCountConstrained = [interior_penalty, AOS, biased_init, ACH, objective, constraint]
+             *
+             * if partitioning problem:
+             * heuristicsConstrained = [dutyCycleConstrained, instrumentOrbitRelationsConstrained, interferenceConstrained, packingEfficiencyConstrained, spacecraftMassConstrained, synergyConstrained]
+             * else:
+             * heuristicsConstrained = [dutyCycleConstrained, instrumentOrbitRelationsConstrained, interferenceConstrained, packingEfficiencyConstrained, spacecraftMassConstrained, synergyConstrained, instrumentCountConstrained]
+             */
+            boolean[] dutyCycleConstrained = {false, false, false, false, false, false};
+            boolean[] instrumentOrbitRelationsConstrained = {false, false, false, false, false, false};
+            boolean[] interferenceConstrained = {false, false, false, false, false, false};
+            boolean[] packingEfficiencyConstrained = {false, false, false, false, false, false};
+            boolean[] spacecraftMassConstrained = {false, false, false, false, false, false};
+            boolean[] synergyConstrained = {false, false, false, false, false, false};
+            boolean[] instrumentCountConstrained = {false, false, false, false, false, false}; // only for assigning problem
 
-        boolean[][] heuristicsConstrained;
-        if (assigningProblem) {
-            heuristicsConstrained = new boolean[7][6];
-        } else {
-            heuristicsConstrained = new boolean[6][6];
-        }
-
-        for (int i = 0; i < heuristicsConstrained[0].length; i++) {
-            heuristicsConstrained[0][i] = dutyCycleConstrained[i];
-            heuristicsConstrained[1][i] = instrumentOrbitRelationsConstrained[i];
-            heuristicsConstrained[2][i] = interferenceConstrained[i];
-            heuristicsConstrained[3][i] = packingEfficiencyConstrained[i];
-            heuristicsConstrained[4][i] = spacecraftMassConstrained[i];
-            heuristicsConstrained[5][i] = synergyConstrained[i];
-            if (assigningProblem) {
-                heuristicsConstrained[6][i] = instrumentCountConstrained[i];
+            boolean[][] heuristicsConstrained;
+            if (this.assigningProblem) {
+                heuristicsConstrained = new boolean[7][6];
+            } else {
+                heuristicsConstrained = new boolean[6][6];
             }
-        }
 
-        int numberOfHeuristicConstraints = 0;
-        int numberOfHeuristicObjectives = 0;
-        for (int i = 0; i < heuristicsConstrained.length; i++) {
-            if (heuristicsConstrained[i][5]) {
-                numberOfHeuristicConstraints++;
+            for (int i = 0; i < heuristicsConstrained[0].length; i++) {
+                heuristicsConstrained[0][i] = dutyCycleConstrained[i];
+                heuristicsConstrained[1][i] = instrumentOrbitRelationsConstrained[i];
+                heuristicsConstrained[2][i] = interferenceConstrained[i];
+                heuristicsConstrained[3][i] = packingEfficiencyConstrained[i];
+                heuristicsConstrained[4][i] = spacecraftMassConstrained[i];
+                heuristicsConstrained[5][i] = synergyConstrained[i];
+                if (this.assigningProblem) {
+                    heuristicsConstrained[6][i] = instrumentCountConstrained[i];
+                }
             }
-            if (heuristicsConstrained[i][4]) {
-                numberOfHeuristicObjectives++;
+
+            int numberOfHeuristicConstraints = 0;
+            int numberOfHeuristicObjectives = 0;
+            for (int i = 0; i < heuristicsConstrained.length; i++) {
+                if (heuristicsConstrained[i][5]) {
+                    numberOfHeuristicConstraints++;
+                }
+                if (heuristicsConstrained[i][4]) {
+                    numberOfHeuristicObjectives++;
+                }
             }
-        }
 
-        double mutationProbability;
-        BaseParams params;
-        AbstractArchitectureEvaluator evaluator;
-        HashMap<String, String[]> instrumentSynergyMap;
-        HashMap<String, String[]> interferingInstrumentsMap;
-        if (this.assigningProblem) {
-            mutationProbability = 1. / 60.;
-            params = new ClimateCentricAssigningParams(this.resourcesPath, "FUZZY-ATTRIBUTES","test", "normal");
+            double mutationProbability;
+            AbstractArchitectureEvaluator evaluator;
+            HashMap<String, String[]> instrumentSynergyMap;
+            HashMap<String, String[]> interferingInstrumentsMap;
+            if (this.assigningProblem) {
+                mutationProbability = 1. / 60.;
 
-            instrumentSynergyMap = getInstrumentSynergyNameMap(params);
-            interferingInstrumentsMap = getInstrumentInterferenceNameMap(params);
+                instrumentSynergyMap = getInstrumentSynergyNameMap(this.params);
+                interferingInstrumentsMap = getInstrumentInterferenceNameMap(this.params);
 
-            evaluator = new ArchitectureEvaluator(this.considerFeasibility, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold);
-        } else {
-            mutationProbability = 1. / 24.; // Based on the 12 instruments for the ClimateCentric Problem
-            params = new ClimateCentricPartitioningParams(this.resourcesPath, "FUZZY-ATTRIBUTES", "test", "normal");
+                evaluator = new ArchitectureEvaluator(this.considerFeasibility, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold);
+            } else {
+                mutationProbability = 1. / 24.; // Based on the 12 instruments for the ClimateCentric Problem
 
-            instrumentSynergyMap = getInstrumentSynergyNameMap(params);
-            interferingInstrumentsMap = getInstrumentInterferenceNameMap(params);
+                instrumentSynergyMap = getInstrumentSynergyNameMap(this.params);
+                interferingInstrumentsMap = getInstrumentInterferenceNameMap(this.params);
 
-            evaluator = new seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator(this.considerFeasibility, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold);
-        }
-
-        this.instrumentNames = params.getInstrumentList();
-        this.orbitNames = params.getOrbitList();
-
-        this.evaluationManager = new ArchitectureEvaluationManager(params, evaluator);
-        this.evaluationManager.init(this.numCPU);
-
-        // Problem class
-        AbstractProblem problem;
-        if (this.assigningProblem) {
-            this.problem = new AssigningProblem(new int[]{1}, params.getProblemName(), this.evaluationManager, (ArchitectureEvaluator) evaluator, params, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold, this.instrumentCountThreshold, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
-        } else {
-            this.problem = new PartitioningProblem(params.getProblemName(), this.evaluationManager, params, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
-        }
-
-        // Initialize heuristic operators
-        Variation repairDutyCycle;
-        Variation repairInstrumentOrbitRelations;
-        Variation repairInterference;
-        Variation repairPackingEfficiency;
-        Variation repairMass;
-        Variation repairSynergy;
-        Variation repairInstrumentCount = null;
-
-        if (assigningProblem) { // duty Cycle, interference, mass -> remove, instrument orbit -> move, pack Eff, synergy -> Add
-            repairDutyCycle = new CompoundVariation(new RepairDutyCycleAssigning(this.dutyCycleThreshold, 1, params, false, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
-            repairInstrumentOrbitRelations = new CompoundVariation(new RepairInstrumentOrbitAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, params, (AssigningProblem) this.problem, true), new BitFlip(mutationProbability));
-            repairInterference = new CompoundVariation(new RepairInterferenceAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, params, (AssigningProblem) this.problem, interferingInstrumentsMap, false), new BitFlip(mutationProbability));
-            //repairPackingEfficiency = new CompoundVariation(new RepairPackingEfficiencyAssigning(this.packingEfficiencyThreshold, 1, params, false, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
-            repairPackingEfficiency = new CompoundVariation(new RepairPackingEfficiencyAdditionAssigning(this.packingEfficiencyThreshold, 1, 1, params, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
-            repairMass = new CompoundVariation(new RepairMassAssigning(this.massThreshold, 1, params, false, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
-            //repairSynergy = new CompoundVariation(new RepairSynergyAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, params, (AssigningProblem) this.problem, instrumentSynergyMap, false), new BitFlip(mutationProbability));
-            repairSynergy = new CompoundVariation(new RepairSynergyAdditionAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, params, (AssigningProblem) this.problem, instrumentSynergyMap), new BitFlip(mutationProbability));
-            repairInstrumentCount = new CompoundVariation(new RepairInstrumentCountAssigning(1, 1, this.instrumentCountThreshold, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, params), new BitFlip(mutationProbability));
-        } else {
-            repairDutyCycle = new CompoundVariation(new RepairDutyCyclePartitioning(this.dutyCycleThreshold, 1, params, (PartitioningProblem) this.problem, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator), new PartitioningMutation(mutationProbability, params));
-            repairInstrumentOrbitRelations = new CompoundVariation(new RepairInstrumentOrbitPartitioning(1, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator, params, (PartitioningProblem) this.problem), new PartitioningMutation(mutationProbability, params));
-            repairInterference = new CompoundVariation(new RepairInterferencePartitioning(1, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator, params, (PartitioningProblem) this.problem, interferingInstrumentsMap), new PartitioningMutation(mutationProbability, params));
-            repairPackingEfficiency = new CompoundVariation(new RepairPackingEfficiencyPartitioning(this.packingEfficiencyThreshold, 1, params, (PartitioningProblem) this.problem, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator), new PartitioningMutation(mutationProbability, params));
-            repairMass = new CompoundVariation(new RepairMassPartitioning(this.massThreshold, 1, params, (PartitioningProblem) this.problem, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator), new PartitioningMutation(mutationProbability, params));
-            repairSynergy = new CompoundVariation(new RepairSynergyPartitioning(1, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator, params, (PartitioningProblem) this.problem, instrumentSynergyMap), new PartitioningMutation(mutationProbability, params));
-        }
-
-        Variation[] allHeuristicOperators = {repairDutyCycle, repairInstrumentOrbitRelations, repairInterference, repairPackingEfficiency, repairMass, repairSynergy, repairInstrumentCount};
-
-        ArrayList<Variation> deployedHeuristicOperators = new ArrayList<>();
-        for (int j = 0; j < allHeuristicOperators.length; j++) {
-            if (this.heuristicsDeployed.get(j)) {
-                deployedHeuristicOperators.add(allHeuristicOperators[j]);
+                evaluator = new seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator(this.considerFeasibility, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold);
             }
+
+            // Penalty weight for interior penalty (if applicable)
+            double penaltyWeight = 0.1;
+
+            this.evaluationManager = new ArchitectureEvaluationManager(this.params, evaluator);
+            this.evaluationManager.init(this.numCPU);
+
+            // Problem class
+            AbstractProblem problem;
+            if (this.assigningProblem) {
+                this.problem = new AssigningProblem(new int[]{1}, this.params.getProblemName(), this.evaluationManager, (ArchitectureEvaluator) evaluator, this.params, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold, this.instrumentCountThreshold, penaltyWeight, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
+            } else {
+                this.problem = new PartitioningProblem(this.params.getProblemName(), this.evaluationManager, this.params, interferingInstrumentsMap, instrumentSynergyMap, this.dutyCycleThreshold, this.massThreshold, this.packingEfficiencyThreshold, penaltyWeight, numberOfHeuristicObjectives, numberOfHeuristicConstraints, heuristicsConstrained);
+            }
+
+            // Initialize heuristic operators
+            Variation repairDutyCycle;
+            Variation repairInstrumentOrbitRelations;
+            Variation repairInterference;
+            Variation repairPackingEfficiency;
+            Variation repairMass;
+            Variation repairSynergy;
+            Variation repairInstrumentCount = null;
+
+            if (assigningProblem) { // duty Cycle, interference, mass -> remove, instrument orbit -> move, pack Eff, synergy -> Add
+                repairDutyCycle = new CompoundVariation(new RepairDutyCycleAssigning(this.dutyCycleThreshold, 1, this.params, false, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
+                repairInstrumentOrbitRelations = new CompoundVariation(new RepairInstrumentOrbitAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, this.params, (AssigningProblem) this.problem, true), new BitFlip(mutationProbability));
+                repairInterference = new CompoundVariation(new RepairInterferenceAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, this.params, (AssigningProblem) this.problem, interferingInstrumentsMap, false), new BitFlip(mutationProbability));
+                //repairPackingEfficiency = new CompoundVariation(new RepairPackingEfficiencyAssigning(this.packingEfficiencyThreshold, 1, this.params, false, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
+                repairPackingEfficiency = new CompoundVariation(new RepairPackingEfficiencyAdditionAssigning(this.packingEfficiencyThreshold, 1, 1, this.params, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
+                repairMass = new CompoundVariation(new RepairMassAssigning(this.massThreshold, 1, this.params, false, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator), new BitFlip(mutationProbability));
+                //repairSynergy = new CompoundVariation(new RepairSynergyAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, this.params, (AssigningProblem) this.problem, instrumentSynergyMap, false), new BitFlip(mutationProbability));
+                repairSynergy = new CompoundVariation(new RepairSynergyAdditionAssigning(1, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, this.params, (AssigningProblem) this.problem, instrumentSynergyMap), new BitFlip(mutationProbability));
+                repairInstrumentCount = new CompoundVariation(new RepairInstrumentCountAssigning(1, 1, this.instrumentCountThreshold, (AssigningProblem) this.problem, this.evaluationManager.getResourcePool(), (ArchitectureEvaluator) evaluator, this.params), new BitFlip(mutationProbability));
+            } else {
+                repairDutyCycle = new CompoundVariation(new RepairDutyCyclePartitioning(this.dutyCycleThreshold, 1, this.params, (PartitioningProblem) this.problem, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator), new PartitioningMutation(mutationProbability, this.params));
+                repairInstrumentOrbitRelations = new CompoundVariation(new RepairInstrumentOrbitPartitioning(1, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator, this.params, (PartitioningProblem) this.problem), new PartitioningMutation(mutationProbability, this.params));
+                repairInterference = new CompoundVariation(new RepairInterferencePartitioning(1, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator, this.params, (PartitioningProblem) this.problem, interferingInstrumentsMap), new PartitioningMutation(mutationProbability, this.params));
+                repairPackingEfficiency = new CompoundVariation(new RepairPackingEfficiencyPartitioning(this.packingEfficiencyThreshold, 1, this.params, (PartitioningProblem) this.problem, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator), new PartitioningMutation(mutationProbability, this.params));
+                repairMass = new CompoundVariation(new RepairMassPartitioning(this.massThreshold, 1, this.params, (PartitioningProblem) this.problem, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator), new PartitioningMutation(mutationProbability, this.params));
+                repairSynergy = new CompoundVariation(new RepairSynergyPartitioning(1, this.evaluationManager.getResourcePool(), (seakers.vassarheur.problems.PartitioningAndAssigning.ArchitectureEvaluator) evaluator, this.params, (PartitioningProblem) this.problem, instrumentSynergyMap), new PartitioningMutation(mutationProbability, this.params));
+            }
+
+            Variation[] allHeuristicOperators = {repairDutyCycle, repairInstrumentOrbitRelations, repairInterference, repairPackingEfficiency, repairMass, repairSynergy, repairInstrumentCount};
+
+            ArrayList<Variation> deployedHeuristicOperators = new ArrayList<>();
+            for (int j = 0; j < allHeuristicOperators.length; j++) {
+                if (this.heuristicsDeployed.get(j)) {
+                    deployedHeuristicOperators.add(allHeuristicOperators[j]);
+                }
+            }
+
+            this.heuristicOperators = deployedHeuristicOperators;
+            //System.out.println("Problem set");
+
+            this.problemSet = true;
         }
-
-        this.heuristicOperators = deployedHeuristicOperators;
-        //System.out.println("Problem set");
-
     }
 
     // Run problem setting methods before running this method

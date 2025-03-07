@@ -1,5 +1,5 @@
 {
-    "Number of runs": 3, 
+    "Number of runs": 1, 
     
     "Value discount (gamma)": 0.99, 
     "Number of training episodes": 50, 
@@ -17,7 +17,7 @@
     "Sample minibatch": false,
     "Buffer used": false,
     "Replay buffer capacity": 100000,
-    "Normalize advantages": true,
+    "Normalize advantages": false,
     "Discrete actions": true,
     "Advantage discount (lambda)": 0.9,
     "Use new problem formulation": true,
@@ -30,11 +30,11 @@
     
     "Clipping ratio threshold": 0.1,
     "Use entropy loss bonus": true,
-    "Entropy coefficient": 0.001,
+    "Entropy coefficient": 1000,
 
-    "Clip gradient norm": false,
+    "Clip gradient norm": true,
     "Max gradient norm": 1.0,
-    "Critic loss coefficient": 0.1,
+    "Critic loss coefficient": 0.0001,
     
     "Number of training epochs": 30,
     

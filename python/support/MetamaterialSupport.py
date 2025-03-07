@@ -8,11 +8,13 @@ import numpy as np
 from support.TrussDesign import TrussDesign
 import torch
 import copy
+from models.truss.TrussFeatures import TrussFeatures
+from models.truss.TrussModel import TrussModel
 from itertools import compress
 from copy import deepcopy
 
 class MetamaterialSupport:
-    def __init__(self, operations_instance, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space, include_weights):
+    def __init__(self, operations_instance, use_python_model, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space, include_weights):
 
         # Define class parameters
         self.side_elem_length = sel
@@ -50,26 +52,27 @@ class MetamaterialSupport:
         self.current_design_hashset = set()
 
         # Get operations instance (the class instance will be different depending on problem, artery or equal stiffness)
+        self.use_python_model = use_python_model
         self.operations_instance = operations_instance
+        if not self.use_python_model:
+            self.operations_instance.setSideElementLength(sel) 
+            self.operations_instance.setSideNodeNumber(float(sidenum)) 
+            self.operations_instance.setRadius(rad) 
+            self.operations_instance.setYoungsModulus(E_mod) 
+            self.operations_instance.setTargetStiffnessRatio(float(c_target)) 
+            self.operations_instance.setNucFac(float(nuc_fac))
 
-        self.operations_instance.setSideElementLength(sel) 
-        self.operations_instance.setSideNodeNumber(float(sidenum)) 
-        self.operations_instance.setRadius(rad) 
-        self.operations_instance.setYoungsModulus(E_mod) 
-        self.operations_instance.setTargetStiffnessRatio(float(c_target)) 
-        self.operations_instance.setNucFac(float(nuc_fac))
+            self.operations_instance.setArteryProblem(artery_prob)
+            self.operations_instance.setSavePath(save_path) 
+            self.operations_instance.setModelSelection(model_sel)
+            self.operations_instance.setNumberOfVariables(n_vars)
+            self.operations_instance.setObjectiveNames(obj_names)
+            self.operations_instance.setConstraintNames(constr_names)
+            self.operations_instance.setHeuristicNames(heur_names)
+            self.operations_instance.setHeuristicsDeployed(heurs_used)
 
-        self.operations_instance.setArteryProblem(artery_prob)
-        self.operations_instance.setSavePath(save_path) 
-        self.operations_instance.setModelSelection(model_sel)
-        self.operations_instance.setNumberOfVariables(n_vars)
-        self.operations_instance.setObjectiveNames(obj_names)
-        self.operations_instance.setConstraintNames(constr_names)
-        self.operations_instance.setHeuristicNames(heur_names)
-        self.operations_instance.setHeuristicsDeployed(heurs_used)
-
-        # Initialize problem instance and heuristic operators (if any) in java
-        self.operations_instance.setProblem()
+            # Initialize problem instance and heuristic operators (if any) in java
+            self.operations_instance.setProblem()
 
     ## Internal method to check constrained domination
     def dominates(self, objectives, constraints, current_PF_objectives, current_PF_constraints):
@@ -148,17 +151,58 @@ class MetamaterialSupport:
         return nodal_position_array
     
     ## Method to obtain connectivity array for the current design (note that the linked java class already has the current design as one of its parameters)
-    def obtain_current_design_CA(self):
-        return np.array(self.operations_instance.getFullConnectivityArray())
-    
+    def obtain_current_design_CA(self, current_design):
+        if not self.use_python_model:
+            return np.array(self.operations_instance.getFullConnectivityArray())
+        else:
+            if self.new_reward:
+                if self.include_weights:
+                    state_decisions_one_hot = current_design['design']
+                    #state_obj_weight0 = current_design['objective weight0']
+                else:
+                    state_decisions_one_hot = current_design
+            else:
+                state_decisions_one_hot = current_design
+
+            state_decisions = state_decisions_one_hot.argmax(dim=1) # Convert one-hot encoding to decisions array
+            state_design = np.zeros(len(state_decisions), dtype=int)
+            for i in range(len(state_decisions)):
+                if not state_decisions[i] == 2:
+                    state_design[i] = state_decisions[i].numpy()
+                else:
+                    break
+            
+            des_truss_features = TrussFeatures(bit_list=state_design.tolist(), sidenum=self.side_node_number, problem=None)
+            return np.array(des_truss_features.design_conn_array)
+
     ## Method to obtain connectivity array for the new design (note that the linked java class already has the current design as one of its parameters)
-    def obtain_new_design_CA(self):
-        return np.array(self.operations_instance.getNewDesignConnectivityArray())
+    def obtain_new_design_CA(self, new_design):
+        if not self.use_python_model:
+            return np.array(self.operations_instance.getNewDesignConnectivityArray())
+        else: 
+            if self.new_reward:
+                if self.include_weights:
+                    state_decisions = new_design['design'] # State decisions are directly stored instead of the one-hot encoding
+                    #state_obj_weight0 = new_design['objective weight0']
+                else:
+                    state_decisions = new_design
+            else:
+                state_decisions = new_design 
+
+            state_design = np.zeros(len(state_decisions), dtype=int)
+            for i in range(len(state_decisions)):
+                if not state_decisions[i] == 2:
+                    state_design[i] = state_decisions[i].numpy()
+                else:
+                    break
+
+            des_truss_features = TrussFeatures(bit_list=state_design.tolist(), sidenum=self.side_node_number, problem=None)
+            return np.array(des_truss_features.design_conn_array)
     
     ## Method to obtain the member added or removed based on the action (call method only after modify_by_action)
-    def obtain_action_members(self):
-        current_CA = self.obtain_current_design_CA()
-        new_CA = self.obtain_new_design_CA()
+    def obtain_action_members(self, current_design, new_design):
+        current_CA = self.obtain_current_design_CA(current_design=current_design)
+        new_CA = self.obtain_new_design_CA(new_design=new_design)
 
         action_members = []
 
@@ -188,7 +232,7 @@ class MetamaterialSupport:
 
         return action_members, member_addition
     
-    ## Method to assign current state based on the One Decision Environments
+    ## Method to assign current state based on the One Decision Environments (only if operations instance is used)
     def set_current_design(self, current_state):
         if self.new_reward:
             if self.include_weights:
@@ -248,7 +292,7 @@ class MetamaterialSupport:
 
         return assign_idx, new_state
     
-    ## Method to set new design for One Decision environments
+    ## Method to set new design for One Decision environments (only if operations instance is used)
     def set_new_design(self, new_state):
         if self.new_reward:
             if self.include_weights:
@@ -281,12 +325,17 @@ class MetamaterialSupport:
             state_design = state
 
         try:
-            self.operations_instance.setCurrentDesign(state_design.tolist())
-            self.operations_instance.setAction(np.int64(action).tolist())
+            if not self.use_python_model:
+                self.operations_instance.setCurrentDesign(state_design.tolist())
+                self.operations_instance.setAction(np.int64(action).tolist())
 
-            # Take action and obtain new state
-            self.operations_instance.operate()
-            new_state_design = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
+                # Take action and obtain new state
+                self.operations_instance.operate()
+                new_state_design = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
+            else: # TODO: MOdify current design based on repair operators
+                new_state_design = state_design.copy()
+                new_state_design[action] = 1 - state_design[action]
+            
             if self.new_reward:
                 if self.include_weights:
                     new_state = self.obs_space.sample()
@@ -440,7 +489,8 @@ class MetamaterialSupport:
             r = np.min([np.exp(r_cd + r_constr + r_dom), 50]) + r_PF
             r /= (step+1)
             
-            self.operations_instance.resetDesignGoals()
+            if not self.use_python_model:
+                self.operations_instance.resetDesignGoals()
 
         return r
     
@@ -697,13 +747,16 @@ class MetamaterialSupport:
         
     def evaluate_design(self, design):
         if (1 in design) and (not 2 in design):
-            self.operations_instance.resetDesignGoals()
-            self.operations_instance.setCurrentDesign(design.tolist())
-            self.operations_instance.evaluate()
+            if not self.use_python_model:
+                self.operations_instance.resetDesignGoals()
+                self.operations_instance.setCurrentDesign(design.tolist())
+                self.operations_instance.evaluate()
 
-            # Obtain objectives and constraints
-            objs = list(self.operations_instance.getObjectives())
-            constrs = list(self.operations_instance.getConstraints())
+                # Obtain objectives and constraints
+                objs = list(self.operations_instance.getObjectives())
+                constrs = list(self.operations_instance.getConstraints())
+            else:
+                objs, constrs, heurs, true_objs = self.compute_objectives_constraints_python(design=design)
 
             # Modify stiffness ratio constraint based on target delta
             if not self.artery_prob:
@@ -711,9 +764,9 @@ class MetamaterialSupport:
                 if np.abs(constrs[stiffrat_index]) <= self.target_stiffrat_delta:
                     constrs[stiffrat_index] = 0
 
-            heurs = list(self.operations_instance.getHeuristics())
-
-            true_objs = list(self.operations_instance.getTrueObjectives())
+            if not self.use_python_model:
+                heurs = list(self.operations_instance.getHeuristics())
+                true_objs = list(self.operations_instance.getTrueObjectives())
 
         else:
             objs = np.zeros(len(self.obj_names))
@@ -728,4 +781,47 @@ class MetamaterialSupport:
 
             true_objs = [1, 1]
             
+        return objs, constrs, heurs, true_objs
+
+    ### Method to compute objectives from the python model based on the problem the same way as the original java problem class (only if use_python_model is True)
+    ### NOTE: The python model does not compute the connectivity constraint and heuristic soft constraints
+    def compute_objectives_constraints_python(self, design):
+        truss_model = TrussModel(self.side_node_number)
+        stiffness_tensor, vol_frac, feas = truss_model.evaluate(design_array=design, y_modulus=self.Youngs_modulus, member_radii=self.radius, side_length=self.side_elem_length)
+
+        stiff_11 = stiffness_tensor[0][0]
+        stiff_12 = stiffness_tensor[0][1]
+        stiff_21 = stiffness_tensor[1][0]
+        stiff_22 = stiffness_tensor[1][1]
+        stiff_16 = stiffness_tensor[0][2]
+        stiff_26 = stiffness_tensor[1][2]
+        stiff_61 = stiffness_tensor[2][0]
+        stiff_62 = stiffness_tensor[2][1]
+        stiff_66 = stiffness_tensor[2][2]
+            
+        objs = np.zeros(2)
+        true_objs = np.zeros(2)
+        heurs = np.zeros(4)
+        if self.artery_prob:
+            true_objs[0] = stiff_11/vol_frac
+            true_objs[1] = (np.absolute((stiff_22/stiff_11) - self.target_stiffrat) + np.absolute((stiff_12/stiff_11) - 0.0745) + np.absolute((stiff_21/stiff_11) - 0.0745) + np.absolute(stiff_61/self.Youngs_modulus) + np.absolute(stiff_16/self.Youngs_modulus) + np.absolute(stiff_26/self.Youngs_modulus) + np.absolute(stiff_62/self.Youngs_modulus) + np.absolute((stiff_66/stiff_11) - 5.038))/8
+                             
+            objs[1] = -(true_objs[0] - 2e5)/1e6
+            objs[2] = ((np.absolute((stiff_22/stiff_11) - self.target_stiffrat))/6 + np.absolute((stiff_12/stiff_11) - 0.0745) + np.absolute((stiff_21/stiff_11) - 0.0745) + np.absolute(stiff_61/1.5e5) + np.absolute(stiff_16/9e4) + np.absolute(stiff_26/9.5e4) + np.absolute(stiff_62/1.5e5) + ((np.absolute((stiff_66/stiff_11) - 5.038) - 4.5)/0.5))/8
+
+            constrs = np.array([feas])
+        else:
+            true_objs[0] = stiff_22
+            true_objs[1] = vol_frac
+
+            objs[0] = -true_objs[0]/self.Youngs_modulus
+            objs[1] = true_objs[1]
+
+            constrs = np.zeros(2) # Make sure constraints are in the order in problem-config.json
+            constrs[0] = feas
+            stiffrat = np.absolute((stiff_22/stiff_11) - self.target_stiffrat)
+            if stiffrat < self.target_stiffrat_delta:
+                stiffrat = 0
+            constrs[1] = stiffrat
+
         return objs, constrs, heurs, true_objs

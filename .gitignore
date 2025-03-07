@@ -9,3 +9,5 @@ matlab/Random 5x5 designs feasibility violations.xlsx
 ppo_keras_run_outputs_for_debugging.txt
 *.lock
 *.lock
+HPRC commands and modules.txt
+*.lock

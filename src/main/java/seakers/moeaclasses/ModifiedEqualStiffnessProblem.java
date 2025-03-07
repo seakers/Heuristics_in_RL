@@ -12,8 +12,8 @@ public class ModifiedEqualStiffnessProblem extends ConstantRadiusTrussProblem2 {
 
     private double feasibleStiffnessDelta;
 
-    public ModifiedEqualStiffnessProblem(String savePath, int modelSelection, int numVariables, int numHeurObjectives, int numHeurConstraints, double rad, double sideLength, double E, double sideNodeNum, double nucFac, double targetCRatio, MatlabEngine eng, boolean[][] constrainHeuristics, double feasibleStiffnessDelta) {
-        super(savePath, modelSelection, numVariables, numHeurObjectives, numHeurConstraints, rad, sideLength, E, sideNodeNum, nucFac, targetCRatio, eng, constrainHeuristics);
+    public ModifiedEqualStiffnessProblem(String savePath, int modelSelection, double penaltyWeight, int numVariables, int numHeurObjectives, int numHeurConstraints, double rad, double sideLength, double E, double sideNodeNum, double nucFac, double targetCRatio, MatlabEngine eng, boolean[][] constrainHeuristics, double feasibleStiffnessDelta) {
+        super(savePath, modelSelection, penaltyWeight, numVariables, numHeurObjectives, numHeurConstraints, rad, sideLength, E, sideNodeNum, nucFac, targetCRatio, eng, constrainHeuristics);
         this.feasibleStiffnessDelta = feasibleStiffnessDelta;
     }
 

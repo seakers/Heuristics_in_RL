@@ -54,10 +54,13 @@ class EOSSSupport:
         self.operations_instance.setHeuristicThresholds(dc_thresh, mass_thresh, pe_thresh, ic_thresh)
 
         # Initialize problem instance and heuristic operators (if any) in java
-        self.operations_instance.setProblem()
-
+        self.operations_instance.setParams()
+        self.operations_instance.setInstrumentAndOrbitNames()
+        
         self.instrument_names = list(self.operations_instance.getInstrumentNames())
         self.orbit_names = list(self.operations_instance.getOrbitNames())
+
+        self.operations_instance.setProblem()
 
     def get_instr_names(self):
         return self.instrument_names
@@ -491,6 +494,7 @@ class EOSSSupport:
             current_truss_des.obtain_instruments_and_orbits(assigning_prob=assign_prob, all_instr_names=self.instrument_names, all_orbit_names=self.orbit_names)
             new_des_bitstring = self.get_bitstring(design)
             if not new_des_bitstring in list(self.explored_design_objectives.keys()):
+                print('design to evaluate: ' + str(design))
                 objs, heurs, true_objs = self.evaluate_design(design) # objs are normalized with no constraint penalties added
                 self.explored_design_objectives[new_des_bitstring] = objs
                 self.explored_design_heuristics[new_des_bitstring] = heurs

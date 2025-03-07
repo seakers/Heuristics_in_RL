@@ -7,19 +7,27 @@ Class to save results into csv files
 import csv
 import numpy as np
 from itertools import compress
+from models.truss.TrussModel import TrussModel
 
 class ResultSaver:
-    def __init__(self, save_path, operations_instance, obj_names, constr_names, heur_names, new_reward, include_weights, c_target_delta):
+    def __init__(self, save_path, operations_instance, artery_prob, use_python_model, obj_names, constr_names, heur_names, new_reward, include_weights, radius, side_elem_length, side_node_number, Youngs_modulus, target_stiffrat, c_target_delta):
         
         # Define class parameters
         self.save_path = save_path # must include {filename}.csv
         self.operations_instance = operations_instance # use operations instance from 
+        self.artery_prob = artery_prob
         self.objective_names = obj_names
         self.constraint_names = constr_names
         self.heuristic_names = heur_names
         self.new_reward = new_reward
         self.include_weights = include_weights
         self.target_stiffrat_delta = c_target_delta
+        self.radius = radius
+        self.side_elem_length = side_elem_length
+        self.side_node_number = side_node_number
+        self.Youngs_modulus = Youngs_modulus
+        self.target_stiffrat = target_stiffrat
+        self.use_python_model = use_python_model
 
         self.explored_design_true_objectives = {}
         self.explored_design_objectives = {}
@@ -196,26 +204,29 @@ class ResultSaver:
 
         # Set and evaluate current design in Java
         if 1 in design:
-            self.operations_instance.resetDesignGoals()
-            self.operations_instance.setCurrentDesign(design.tolist())
-            self.operations_instance.evaluate()
+            if not self.use_python_model:
+                self.operations_instance.resetDesignGoals()
+                self.operations_instance.setCurrentDesign(design.tolist())
+                self.operations_instance.evaluate()
 
-            # Obtain objectives and constraints
-            objs = list(self.operations_instance.getObjectives())
-            if metamat_prob:
-                constrs = list(self.operations_instance.getConstraints())
-            else:
-                constrs = []
+                # Obtain objectives and constraints
+                objs = list(self.operations_instance.getObjectives())
+                if metamat_prob:
+                    constrs = list(self.operations_instance.getConstraints())
+                else:
+                    constrs = []
 
-            # Modify stiffness ratio constraint based on target delta
-            if (metamat_prob) and (not artery_prob):
-                stiffrat_index = self.constraint_names.index('StiffnessRatioViolation')
-                if np.abs(constrs[stiffrat_index]) <= self.target_stiffrat_delta:
-                    constrs[stiffrat_index] = 0
+                # Modify stiffness ratio constraint based on target delta
+                if (metamat_prob) and (not artery_prob):
+                    stiffrat_index = self.constraint_names.index('StiffnessRatioViolation')
+                    if np.abs(constrs[stiffrat_index]) <= self.target_stiffrat_delta:
+                        constrs[stiffrat_index] = 0
 
-            heurs = list(self.operations_instance.getHeuristics())
+                heurs = list(self.operations_instance.getHeuristics())
 
-            true_objs = list(self.operations_instance.getTrueObjectives())
+                true_objs = list(self.operations_instance.getTrueObjectives())
+            elif metamat_prob:
+                objs, constrs, heurs, true_objs = self.compute_objectives_constraints_python(design=design)
 
         else:
             objs = np.zeros(len(self.objective_names))
@@ -233,3 +244,46 @@ class ResultSaver:
             true_objs = [1, 1]
 
         return true_objs, objs, constrs, heurs
+    
+    ### Method to compute objectives from the python model based on the problem the same way as the original java problem class (only if use_python_model is True)
+    ### NOTE: The python model does not compute the connectivity constraint and heuristic soft constraints
+    def compute_objectives_constraints_python(self, design):
+        truss_model = TrussModel(self.side_node_number)
+        stiffness_tensor, vol_frac, feas = truss_model.evaluate(design_array=design, y_modulus=self.Youngs_modulus, member_radii=self.radius, side_length=self.side_elem_length)
+
+        stiff_11 = stiffness_tensor[0][0]
+        stiff_12 = stiffness_tensor[0][1]
+        stiff_21 = stiffness_tensor[1][0]
+        stiff_22 = stiffness_tensor[1][1]
+        stiff_16 = stiffness_tensor[0][2]
+        stiff_26 = stiffness_tensor[1][2]
+        stiff_61 = stiffness_tensor[2][0]
+        stiff_62 = stiffness_tensor[2][1]
+        stiff_66 = stiffness_tensor[2][2]
+            
+        objs = np.zeros(2)
+        true_objs = np.zeros(2)
+        heurs = np.zeros(4)
+        if self.artery_prob:
+            true_objs[0] = stiff_11/vol_frac
+            true_objs[1] = (np.absolute((stiff_22/stiff_11) - self.target_stiffrat) + np.absolute((stiff_12/stiff_11) - 0.0745) + np.absolute((stiff_21/stiff_11) - 0.0745) + np.absolute(stiff_61/self.Youngs_modulus) + np.absolute(stiff_16/self.Youngs_modulus) + np.absolute(stiff_26/self.Youngs_modulus) + np.absolute(stiff_62/self.Youngs_modulus) + np.absolute((stiff_66/stiff_11) - 5.038))/8
+                             
+            objs[1] = -(true_objs[0] - 2e5)/1e6
+            objs[2] = ((np.absolute((stiff_22/stiff_11) - self.target_stiffrat))/6 + np.absolute((stiff_12/stiff_11) - 0.0745) + np.absolute((stiff_21/stiff_11) - 0.0745) + np.absolute(stiff_61/1.5e5) + np.absolute(stiff_16/9e4) + np.absolute(stiff_26/9.5e4) + np.absolute(stiff_62/1.5e5) + ((np.absolute((stiff_66/stiff_11) - 5.038) - 4.5)/0.5))/8
+
+            constrs = np.array([feas])
+        else:
+            true_objs[0] = stiff_22
+            true_objs[1] = vol_frac
+
+            objs[0] = -true_objs[0]/self.Youngs_modulus
+            objs[1] = true_objs[1]
+
+            constrs = np.zeros(2)
+            constrs[0] = feas
+            stiffrat = np.absolute((stiff_22/stiff_11) - self.target_stiffrat)
+            if stiffrat < self.target_stiffrat_delta:
+                stiffrat = 0
+            constrs[1] = stiffrat
+
+        return objs, constrs, heurs, true_objs

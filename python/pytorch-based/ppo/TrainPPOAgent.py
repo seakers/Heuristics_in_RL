@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Training and saving a PPO agent using PyTorch methods
-Reference: https://keras.io/examples/rl/ppo_cartpole/ and keras-based PPO agent scripts
+Training and saving a PPO agent using PyTorch methods - runs on a cpu or gpu at most
+Reference: https://pytorch.org/tutorials/intermediate/reinforcement_ppo.html
 
 TODO:
 1. Plotting
@@ -22,6 +22,7 @@ parent_path = str(Path(current_path).resolve().parents[1]) # parents[i] is the i
 sys.path.append(parent_path)
 from itertools import chain
 from copy import deepcopy
+import pickle
 
 from collections import defaultdict
 
@@ -36,6 +37,9 @@ warnings.filterwarnings("ignore")
 from tensordict.nn import TensorDictModule
 from torch import nn
 from torch.nn import ModuleList
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
 from torch.distributions import OneHotCategorical
 from torchrl.collectors import SyncDataCollector
@@ -51,9 +55,13 @@ from torchrl.envs.libs.gym import GymWrapper
 from tqdm import tqdm
 
 print("Torch cuda available: ", torch.cuda.is_available())
-print("Torch device: ", torch.cuda.get_device_name(0))
-device = torch.device(0)
-# device = torch.device("cpu")
+if torch.cuda.is_available():
+    for i in range(torch.cuda.device_count()):
+        print("Torch device: ", torch.cuda.get_device_name(i))
+    device = torch.device(0)
+else:
+    print("Torch device: cpu")
+    device = torch.device("cpu")
 
 from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
 from envs.metamaterial.ArteryOneDecisionEnv import ArteryOneDecisionEnv
@@ -162,6 +170,9 @@ match problem_choice:
 
         one_dec = data_prob["Use One Decision Environment"] # If true -> {problem}OneDecisionEnvironment.py, false -> {problem}ProblemEnvironment.py
 
+        use_python_model = data_prob["Use Python model"] # If true -> use Python implementation of stiffness model, false -> use Java implementation through operations instance
+        # Note: Python model does not compute connectivity constraint and the heuristic soft constraints
+
         if artery_prob:
             print("Metamaterial - Artery Problem")
         else:
@@ -190,6 +201,7 @@ match problem_choice:
         #     constr_names = ['FeasibilityViolation','ConnectivityViolation','StiffnessRatioViolation']
         # else:
         #     constr_names = ['FeasibilityViolation','ConnectivityViolation']
+        # Note: Python model does not compute connectivity constraint and the heuristic soft constraints
         objs_max = data_prob["Objective maximized"]
 
         # c_target = data_prob["Target stiffness ratio"]
@@ -242,6 +254,7 @@ match problem_choice:
 
         metamat_prob = False
         artery_prob = False
+        use_python_model = False
 
     case _:
         print("Invalid problem choice")
@@ -250,8 +263,11 @@ n_episodes_per_fig = 4 # used for plotting returns and losses
 linestyles = ['solid','dotted','dashed','dashdot']
 
 ## Access java gateway and pass parameters to operations class instance
-gateway = JavaGateway(gateway_parameters=GatewayParameters(auto_convert=True))
-operations_instance = gateway.entry_point.getOperationsInstance()   
+if not use_python_model:
+    gateway = JavaGateway(gateway_parameters=GatewayParameters(auto_convert=True))
+    operations_instance = gateway.entry_point.getOperationsInstance()  
+else:
+    operations_instance = None 
 
 #################################################################################################
 ########################################## Key Classes ##########################################
@@ -259,7 +275,7 @@ operations_instance = gateway.entry_point.getOperationsInstance()
 
 class ActorNetwork(nn.Module):
 
-    def __init__(self, environ, hidden_layer_units, hidden_layer_dropout_probs):
+    def __init__(self, environ, hidden_layer_units, hidden_layer_dropout_probs, device_name):
         super().__init__()
 
         # Define layers for actor network
@@ -275,9 +291,9 @@ class ActorNetwork(nn.Module):
         #self.dropout_layers.append(nn.Dropout(hidden_layer_dropout_probs[0]))
 
         if include_weights:
-            self.params.append(nn.Linear(environ.observation_spec['design'].shape[0], hidden_layer_units[0], device=device)) # Input layer
+            self.params.append(nn.Linear(environ.observation_spec['design'].shape[0], hidden_layer_units[0], device=device_name)) # Input layer
         else:
-            self.params.append(nn.Linear(environ.observation_spec['observation'].shape[0], hidden_layer_units[0], device=device)) # Input layer
+            self.params.append(nn.Linear(environ.observation_spec['observation'].shape[0], hidden_layer_units[0], device=device_name)) # Input layer
         self.params.append(nn.ReLU())
         self.params.append(nn.Dropout(hidden_layer_dropout_probs[0]))
 
@@ -286,15 +302,15 @@ class ActorNetwork(nn.Module):
             #self.activation_layers.append(nn.ReLU())
             #self.dropout_layers.append(nn.Dropout(hidden_layer_dropout_probs[i+1]))
 
-            self.params.append(nn.Linear(hidden_layer_units[i], hidden_layer_units[i+1], device=device))
+            self.params.append(nn.Linear(hidden_layer_units[i], hidden_layer_units[i+1], device=device_name))
             self.params.append(nn.ReLU())
             self.params.append(nn.Dropout(hidden_layer_dropout_probs[i+1]))
         
         if one_dec:
-            self.params.append(nn.Linear(hidden_layer_units[-1], 2, device=device)) # Output layer
+            self.params.append(nn.Linear(hidden_layer_units[-1], 2, device=device_name)) # Output layer
         else:
             #self.output_layer = nn.Linear(hidden_layer_units[-1], environ.action_spec.shape[0], device=device) # Output layer
-            self.params.append(nn.Linear(hidden_layer_units[-1], environ.action_spec.shape[0], device=device)) # Output layer
+            self.params.append(nn.Linear(hidden_layer_units[-1], environ.action_spec.shape[0], device=device_name)) # Output layer
             #self.params.append(nn.Linear(hidden_layer_units[-1], n_actions, device=device)) # Output layer
 
     def forward(self, x):
@@ -314,7 +330,7 @@ class CriticNetwork(nn.Module):
 
     ## ISSUE: Dropout does not work in the critic network somehow, vmap_randomness flag in the loss module cannot be set for the ClipPPOLoss object currently
 
-    def __init__(self, environ, hidden_layer_units, hidden_layer_dropout_probs):
+    def __init__(self, environ, hidden_layer_units, hidden_layer_dropout_probs, device_name):
         super().__init__()
 
         # Define layers for critic network
@@ -327,9 +343,9 @@ class CriticNetwork(nn.Module):
         #self.layers.append(nn.Linear(environ.observation_spec['observation'].shape[0], hidden_layer_units[0], device=device)) # Input layer
         #self.activation_layers.append(nn.ReLU())
         if include_weights:
-            self.params.append(nn.Linear(environ.observation_spec['design'].shape[0], hidden_layer_units[0], device=device)) # Input layer
+            self.params.append(nn.Linear(environ.observation_spec['design'].shape[0], hidden_layer_units[0], device=device_name)) # Input layer
         else:
-            self.params.append(nn.Linear(environ.observation_spec['observation'].shape[0], hidden_layer_units[0], device=device)) # Input layer
+            self.params.append(nn.Linear(environ.observation_spec['observation'].shape[0], hidden_layer_units[0], device=device_name)) # Input layer
         self.params.append(nn.ReLU())
 
         #self.dropout_layers.append(nn.Dropout(hidden_layer_dropout_probs[0]))
@@ -338,12 +354,12 @@ class CriticNetwork(nn.Module):
             #self.activation_layers.append(nn.ReLU())
             #self.dropout_layers.append(nn.Dropout(hidden_layer_dropout_probs[i+1]))
 
-            self.params.append(nn.Linear(hidden_layer_units[i], hidden_layer_units[i+1], device=device))
+            self.params.append(nn.Linear(hidden_layer_units[i], hidden_layer_units[i+1], device=device_name))
             self.params.append(nn.ReLU())
             #self.params.append(nn.Dropout(hidden_layer_dropout_probs[i+1]))
         
         #self.output_layer = nn.Linear(hidden_layer_units[-1], 1, device=device) # Output layer
-        self.params.append(nn.Linear(hidden_layer_units[-1], 1, device=device)) # Output layer
+        self.params.append(nn.Linear(hidden_layer_units[-1], 1, device=device_name)) # Output layer
 
     def forward(self, x):
         if one_dec:
@@ -377,9 +393,9 @@ for run_num in range(n_runs):
 
     print('Run ' + str(run_num))
 
-    global_nfe = 0
+    #global_nfe = 0
 
-    pbar = tqdm(total=original_max_train_episodes)
+    pbar = tqdm(total=original_max_train_episodes)  
     pbar.set_description("Episodes: ")
 
     current_save_path = save_path + "run " + str(run_num) 
@@ -410,26 +426,26 @@ for run_num in range(n_runs):
     if problem_choice == 1:
         if artery_prob:
             if one_dec:
-                base_train_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
 
             else:
-                base_train_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
         else:
             if one_dec: 
-                base_train_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
             else:
-                base_train_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, use_python_model=use_python_model, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
     else:
         if assign_prob:
@@ -450,8 +466,8 @@ for run_num in range(n_runs):
     check_env_specs(eval_env)
     
     ## Initialize actor and critic
-    actor = ActorNetwork(train_env, actor_fc_layer_params, actor_dropout_layer_params)
-    critic = CriticNetwork(train_env, critic_fc_layer_params, critic_dropout_layer_params)
+    actor = ActorNetwork(train_env, actor_fc_layer_params, actor_dropout_layer_params, device)
+    critic = CriticNetwork(train_env, critic_fc_layer_params, critic_dropout_layer_params, device)
 
     if include_weights:
         policy_module = TensorDictModule(actor, in_keys=["design"], out_keys=["logits"])
@@ -483,9 +499,9 @@ for run_num in range(n_runs):
 
     ## Initialize result saver
     if metamat_prob:
-        result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, c_target_delta=feas_c_target_delta)
+        result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, artery_prob=artery_prob, use_python_model=use_python_model, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, radius=rad, side_elem_length=sel, side_node_number=sidenum, Youngs_modulus=E_mod, target_stiffrat=c_target, c_target_delta=feas_c_target_delta)
     else:
-        result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, obj_names=obj_names, constr_names=[], heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, c_target_delta=0.0)
+        result_logger = ResultSaver(save_path=os.path.join(current_save_path, file_name), operations_instance=operations_instance, artery_prob=artery_prob, use_python_model=use_python_model, obj_names=obj_names, constr_names=[], heur_names=heur_names, new_reward=new_reward, include_weights=include_weights, radius=0.0, side_elem_length=0.0, side_node_number=0.0, Youngs_modulus=0.0, target_stiffrat=0.0, c_target_delta=0.0)
 
 
     collector = SyncDataCollector(
@@ -601,9 +617,6 @@ for run_num in range(n_runs):
                 + loss_vals["loss_critic"]
                 + loss_vals["loss_entropy"]
             )
-
-            if torch.isnan(loss_vals["loss_objective"]) or torch.isnan(loss_vals["loss_critic"]) or torch.isnan(loss_vals["loss_entropy"]):
-                print('Check')
 
             print('Actor clipping loss: ', loss_vals["loss_objective"].detach().cpu().numpy())
             print('Critic loss: ', loss_vals["loss_critic"].detach().cpu().numpy())
