@@ -9,7 +9,7 @@ import gymnasium as gym
 from gymnasium import spaces
 #import gym
 #from gym import spaces
-from support.EOSSSupport import EOSSSupport
+from support.eosssupport import EOSSSupport
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatch
 import numpy as np

@@ -22,7 +22,6 @@ parent_path = str(Path(current_path).resolve().parents[1]) # parents[i] is the i
 sys.path.append(parent_path)
 from itertools import chain
 from copy import deepcopy
-import pickle
 
 from collections import defaultdict
 
@@ -66,13 +65,13 @@ else:
     print("Torch device: cpu")
     #device = torch.device("cpu")
 
-from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
-from envs.metamaterial.ArteryOneDecisionEnv import ArteryOneDecisionEnv
-from envs.metamaterial.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
-from envs.metamaterial.EqualStiffnessOneDecisionEnv import EqualStiffnessOneDecisionEnv
-from envs.eoss.AssignmentOneDecisionEnv import AssignmentOneDecisionEnv
-from envs.eoss.AssignmentProblemEnv import AssignmentProblemEnv
-from save.ResultSaving import ResultSaver
+from envs.metamaterial.arteryproblemenv import ArteryProblemEnv
+from envs.metamaterial.arteryonedecisionenv import ArteryOneDecisionEnv
+from envs.metamaterial.equalstiffnessproblemenv import EqualStiffnessProblemEnv
+from envs.metamaterial.equalstiffnessonedecisionenv import EqualStiffnessOneDecisionEnv
+from envs.eoss.assignmentonedecisionenv import AssignmentOneDecisionEnv
+from envs.eoss.assignmentproblemenv import AssignmentProblemEnv
+from save.resultsaving import ResultSaver
 
 import numpy as np
 import math 
@@ -378,6 +377,179 @@ class CriticNetwork(nn.Module):
         return self.forward(x)
 
 #################################################################################################
+######################################## Worker Function ########################################
+#################################################################################################
+
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+
+    # initialize the process group
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+def cleanup():
+    dist.destroy_process_group()
+
+def training_function(rank, world_size, data_tensordict, include_weights, action_spec, optim, train_epochs, episode, network_save_intervals, current_save_path):
+
+    setup(rank=rank, world_size=world_size)
+
+    dataloader = DataLoader(data_tensordict, batch_size=int(data_tensordict['next']['reward'].shape[0]/world_size), shuffle=False, collate_fn=lambda x: x, sampler=DistributedSampler(data_tensordict))
+
+    print('Training in device: ', rank)
+    print('Batch size: ', int(data_tensordict['next']['reward'].shape[0]/world_size)) 
+
+    ## Initialize actor and critic with loaded weights of previously trained networks
+    actor = ActorNetwork(train_env, actor_fc_layer_params, actor_dropout_layer_params)
+    critic = CriticNetwork(train_env, critic_fc_layer_params, critic_dropout_layer_params)
+    actor.load_state_dict(torch.load(os.path.join(current_save_path, model_filename), weights_only=True))
+    critic.load_state_dict(torch.load(os.path.join(current_save_path, model_filename), weights_only=True))
+
+    actor.to(rank)
+    critic.to(rank)
+
+    actor_ddp = DDP(actor, device_ids=[rank])
+    critic_ddp = DDP(critic, device_ids=[rank])     
+
+
+    if include_weights:
+        policy_module = TensorDictModule(actor_ddp, in_keys=["design"], out_keys=["logits"])
+    else:
+        policy_module = TensorDictModule(actor_ddp, in_keys=["observation"], out_keys=["logits"])
+
+    policy_module = ProbabilisticActor(
+    module=policy_module,
+    spec=action_spec,
+    in_keys=["logits"],
+    distribution_class=OneHotCategorical,
+    return_log_prob=True,
+    # we'll need the log-prob for the numerator of the importance weights
+    )
+
+    if include_weights:
+        value_module = ValueOperator(
+        module=critic_ddp,
+        in_keys=["design"],
+        )
+    else:
+        value_module = ValueOperator(
+        module=critic_ddp,
+        in_keys=["observation"],
+        )
+
+    advantage_module = GAE(gamma=gamma, lmbda=lam, value_network=value_module, average_gae=True)
+
+    loss_module = ClipPPOLoss(
+    actor_network=policy_module,
+    critic_network=value_module,
+    clip_epsilon=clip_ratio,
+    entropy_bonus=use_entropy_bonus,
+    entropy_coef=ent_coeff,
+    # these keys match by default but we set this for completeness
+    critic_coef=critic_loss_coeff,
+    loss_critic_type="l2",
+    )
+    #loss_module.set_vmap_randomness("same")
+
+    policy_module.to(rank)
+    value_module.to(rank)
+    advantage_module.to(rank)
+
+    # we now have a batch of data to work with. Let's learn something from it.
+    losses_data = []
+    for epoch in range(train_epochs):
+        optim.zero_grad()
+
+        # We'll need an "advantage" signal to make PPO work.
+        # We re-compute it at each epoch as its value depends on the value
+        # network which is updated in the inner loop.
+        advantage_module(dataloader)
+        
+        loss_vals = loss_module(dataloader.to(rank))
+        loss_value = (
+            loss_vals["loss_objective"]
+            + loss_vals["loss_critic"]
+            + loss_vals["loss_entropy"]
+        )
+
+        if torch.isnan(loss_vals["loss_objective"]) or torch.isnan(loss_vals["loss_critic"]) or torch.isnan(loss_vals["loss_entropy"]):
+            print('Check')
+
+        print('Device rank: ', rank, ' Epoch: ', epoch)
+        print('Device rank: ', rank, ' Actor clipping loss: ', loss_vals["loss_objective"].detach().cpu().numpy())
+        print('Device rank: ', rank, ' Learning rate: ', optim.param_groups[0]["lr"])
+        print('Device rank: ', rank, ' Critic loss: ', loss_vals["loss_critic"].detach().cpu().numpy())
+        print('Device rank: ', rank, ' Entropy bonus: ', loss_vals["loss_entropy"].detach().cpu().numpy())
+        print('Device rank: ', rank, ' Critic coef.: ', critic_loss_coeff)
+        print('Device rank: ', rank, ' Entropy coef.:', ent_coeff)
+        print('\n')
+
+        # Optimization: backward, grad clipping and optimization step
+        loss_value.backward()
+        # this is not strictly mandatory but it's good practice to keep
+        # your gradient norm bounded
+        torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
+        optim.step()
+
+        losses_data.append([epoch, loss_vals["loss_objective"].detach().cpu().numpy(), loss_vals["loss_entropy"].detach().cpu().numpy(), loss_vals["loss_critic"].detach().cpu().numpy()])
+
+    loss_data_savepath = os.path.join(current_save_path, "losses_device" + str(rank) + "_episode" + episode + ".csv")
+    loss_data_fields = ["Epoch", "Actor Clipping Loss", "Actor Entropy Loss", "Critic Loss"]
+
+    with open(loss_data_savepath, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(loss_data_fields)
+        writer.writerows(losses_data)
+    
+    # mean_clipping_loss = np.mean(actor_clip_loss)
+    # mean_entropy_loss = np.mean(actor_entropy_loss)
+    # mean_critic_loss = np.mean(critic_loss)
+
+    # mean_reward = tensordict_data["next", "reward"].mean().item()
+
+    ## Save underlying actor and critic networks 
+
+
+
+
+
+    # Save current trained actor and critic networks at regular intervals
+    if (rank == 0) and (episode % network_save_intervals == 0):
+        actor_model_filename = "learned_actor_network_ep" + str(episode)
+        if problem_choice == 1:
+            if artery_prob:
+                actor_model_filename += "_artery"
+            else:
+                actor_model_filename += "_eqstiff"
+        else:
+            if assign_prob:
+                actor_model_filename += "_assign"
+            else:
+                actor_model_filename += "_partition"
+        
+        actor_model_filename += ".pth"
+
+        torch.save(actor_ddp.module.state_dict(), os.path.join(current_save_path, actor_model_filename))
+
+        critic_model_filename = "learned_critic_network_ep" + str(episode)
+        if problem_choice == 1:
+            if artery_prob:
+                critic_model_filename += "_artery"
+            else:
+                critic_model_filename += "_eqstiff"
+        else:
+            if assign_prob:
+                critic_model_filename += "_assign"
+            else:
+                critic_model_filename += "_partition"
+                
+        critic_model_filename += ".pth"
+
+        torch.save(critic_ddp.module.state_dict(), os.path.join(current_save_path, critic_model_filename))
+
+    cleanup()
+
+#################################################################################################
 ######################################### Main Operation ########################################
 #################################################################################################
 
@@ -421,38 +593,38 @@ for run_num in range(n_runs):
     if problem_choice == 1:
         if artery_prob:
             if one_dec:
-                base_train_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(ArteryOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
 
             else:
-                base_train_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(ArteryProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
         else:
             if one_dec: 
-                base_train_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(EqualStiffnessOneDecisionEnv(operations_instance=operations_instance, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
             else:
-                base_train_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(EqualStiffnessProblemEnv(operations_instance=operations_instance, n_actions=n_action_vals, n_states=n_states, model_sel=model_sel, sel=sel, sidenum=sidenum, rad=rad, E_mod=E_mod, c_target=c_target, c_target_delta=feas_c_target_delta, nuc_fac=nucFac, save_path=current_save_path, obj_names=obj_names, constr_names=constr_names, heur_names=heur_names, heurs_used=heurs_used, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
     else:
         if assign_prob:
             if one_dec:
-                base_train_env = GymWrapper(AssignmentOneDecisionEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(AssignmentOneDecisionEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(AssignmentOneDecisionEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(AssignmentOneDecisionEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
             else:
-                base_train_env = GymWrapper(AssignmentProblemEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_train_env = GymWrapper(AssignmentProblemEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 train_env = TransformedEnv(base_train_env, RewardSum())
-                base_eval_env = GymWrapper(AssignmentProblemEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), device=device, categorical_action_encoding=False)
+                base_eval_env = GymWrapper(AssignmentProblemEnv(operations_instance=operations_instance, resources_path=resources_path, obj_names=obj_names, heur_names=heur_names, heurs_used=heurs_used, consider_feas=consider_feas, dc_thresh=dc_thresh, mass_thresh=mass_thresh, pe_thresh=pe_thresh, ic_thresh=ic_thresh, render_steps=render_steps, new_reward=new_reward, obj_max=objs_max, include_wts_in_state=include_weights), categorical_action_encoding=False)
                 eval_env = TransformedEnv(base_eval_env, RewardSum())
         else:
             print("TBD")
@@ -460,15 +632,9 @@ for run_num in range(n_runs):
     check_env_specs(train_env)
     check_env_specs(eval_env)
     
-    ## Initialize actor and critic
-    actor = ActorNetwork(train_env, actor_fc_layer_params, actor_dropout_layer_params, device)
-    with open('obj4.pkl', "wb") as file:
-        pickle.dump(actor, file)
-    print("actor dumped")
-    critic = CriticNetwork(train_env, critic_fc_layer_params, critic_dropout_layer_params, device)
-    with open('obj5.pkl', "wb") as file:
-        pickle.dump(critic, file)
-    print("critic dumped")
+    ## Initialize actor and critic with loaded weights of previously trained networks
+    actor = ActorNetwork(train_env, actor_fc_layer_params, actor_dropout_layer_params)
+    critic = CriticNetwork(train_env, critic_fc_layer_params, critic_dropout_layer_params)
 
     if include_weights:
         policy_module = TensorDictModule(actor, in_keys=["design"], out_keys=["logits"])
@@ -495,6 +661,20 @@ for run_num in range(n_runs):
         in_keys=["observation"],
         )
 
+    advantage_module = GAE(gamma=gamma, lmbda=lam, value_network=value_module, average_gae=True)
+
+    loss_module = ClipPPOLoss(
+    actor_network=policy_module,
+    critic_network=value_module,
+    clip_epsilon=clip_ratio,
+    entropy_bonus=use_entropy_bonus,
+    entropy_coef=ent_coeff,
+    # these keys match by default but we set this for completeness
+    critic_coef=critic_loss_coeff,
+    loss_critic_type="l2",
+    )
+    #loss_module.set_vmap_randomness("same")
+
     #print("Running policy:", policy_module(train_env.reset()))
     #print("Running value:", value_module(train_env.reset()))
 
@@ -512,27 +692,14 @@ for run_num in range(n_runs):
         total_frames=trajectory_collect_steps*episode_training_trajs*original_max_train_episodes, # total steps over entire run
         max_frames_per_traj=trajectory_collect_steps,
         split_trajs=True,
-        device=device,)
+        )
 
     if sample_minibatch: # Use replay buffer to sample minibatch each episode (replay buffer is purged after each episode so that the algorithm still works in an on-policy manner)
         replay_buffer = ReplayBuffer(
         storage=LazyTensorStorage(max_size=trajectory_collect_steps*episode_training_trajs),
         # sampler=SamplerWithoutReplacement(),)
-        sampler=RandomSampler(),)
-
-    advantage_module = GAE(gamma=gamma, lmbda=lam, value_network=value_module, average_gae=True)
-
-    loss_module = ClipPPOLoss(
-    actor_network=policy_module,
-    critic_network=value_module,
-    clip_epsilon=clip_ratio,
-    entropy_bonus=use_entropy_bonus,
-    entropy_coef=ent_coeff,
-    # these keys match by default but we set this for completeness
-    critic_coef=critic_loss_coeff,
-    loss_critic_type="l2",
-    )
-    #loss_module.set_vmap_randomness("same")
+        sampler=RandomSampler(),
+        )
 
     #optim = torch.optim.Adam(loss_module.parameters(), lr)
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -557,7 +724,8 @@ for run_num in range(n_runs):
         if sample_minibatch:
             replay_buffer.extend(data_view.cpu())
 
-        dataloader = DataLoader(data_view, batch_size=data_view['next']['reward'].shape[0], shuffle=False, collate_fn=lambda x: x,generator=DistributedSampler())        
+
+
 
         # Log trajectories into the result logger
         if include_weights:
@@ -599,117 +767,6 @@ for run_num in range(n_runs):
         
         overall_step_counter += data_view['step_count'].shape[0]
 
-        # we now have a batch of data to work with. Let's learn something from it.
-        actor_clip_loss = []
-        actor_entropy_loss = []
-        critic_loss = []
-        for epoch in range(train_epochs):
-            # We'll need an "advantage" signal to make PPO work.
-            # We re-compute it at each epoch as its value depends on the value
-            # network which is updated in the inner loop.
-            advantage_module(tensordict_data)
-
-            if sample_minibatch:
-                subdata = replay_buffer.sample(minibatch_steps*episode_training_trajs)
-            else:
-                subdata = deepcopy(data_view)
-            
-            loss_vals = loss_module(subdata.to(device))
-            loss_value = (
-                loss_vals["loss_objective"]
-                + loss_vals["loss_critic"]
-                + loss_vals["loss_entropy"]
-            )
-
-            if torch.isnan(loss_vals["loss_objective"]) or torch.isnan(loss_vals["loss_critic"]) or torch.isnan(loss_vals["loss_entropy"]):
-                print('Check')
-
-            print('Actor clipping loss: ', loss_vals["loss_objective"].detach().cpu().numpy())
-            print('Critic loss: ', loss_vals["loss_critic"].detach().cpu().numpy())
-            print('Entropy bonus: ', loss_vals["loss_entropy"].detach().cpu().numpy())
-            print('Critic coef.: ', critic_loss_coeff)
-            print('Entropy coef.:', ent_coeff)
-            print('\n')
-
-            # Optimization: backward, grad clipping and optimization step
-            loss_value.backward()
-            # this is not strictly mandatory but it's good practice to keep
-            # your gradient norm bounded
-            torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
-            optim.step()
-            optim.zero_grad()
-
-            if sample_minibatch:
-                replay_buffer.empty()
-
-            actor_clip_loss.append(loss_vals["loss_objective"].detach().cpu().numpy())
-            actor_entropy_loss.append(loss_vals["loss_entropy"].detach().cpu().numpy())
-            critic_loss.append(loss_vals["loss_critic"].detach().cpu().numpy())
-
-            run_logs["run " + str(run_num)]["actor clipping loss"].append(loss_vals["loss_objective"].detach().cpu().numpy())
-            run_logs["run " + str(run_num)]["critic loss"].append(loss_vals["loss_critic"].detach().cpu().numpy())
-            run_logs["run " + str(run_num)]["actor entropy loss"].append(loss_vals["loss_entropy"].detach().cpu().numpy())
-            run_logs["run " + str(run_num)]["episode epochs"].append((episode*train_epochs) + epoch)
-
-        mean_clipping_loss = np.mean(actor_clip_loss)
-        mean_entropy_loss = np.mean(actor_entropy_loss)
-        mean_critic_loss = np.mean(critic_loss)
-        run_logs["run " + str(run_num)]["mean actor clipping loss"].append(mean_clipping_loss)
-        run_logs["run " + str(run_num)]["mean actor entropy loss"].append(mean_entropy_loss)
-        run_logs["run " + str(run_num)]["mean critic loss"].append(mean_critic_loss)
-
-        actor_losses_data.append([episode, mean_clipping_loss, mean_entropy_loss])
-        critic_losses_data.append([episode, mean_critic_loss])
-
-        run_logs["run " + str(run_num)]["reward"].append(tensordict_data["next", "reward"].mean().item())
-        pbar_steps.update(tensordict_data.numel())
-        avg_reward = run_logs["run " + str(run_num)]['reward'][-1]
-        init_reward = run_logs["run " + str(run_num)]['reward'][0]
-        cumul_reward_str = (
-            f"average reward={avg_reward: 4.4f} (init={init_reward: 4.4f})"
-        )
-        #logs["step_count"].append(tensordict_data["step_count"].max().item())
-        #stepcount_str = f"step count (max): {logs['step_count'][-1]}"
-        run_logs["run " + str(run_num)]["lr"].append(optim.param_groups[0]["lr"])
-        current_lr = run_logs["run " + str(run_num)]['lr'][-1]
-        lr_str = f"lr policy: {current_lr: .6f}"
-        
-        run_logs["run " + str(run_num)]["train episode"].append(episode)
-
-        # Save current trained actor and critic networks at regular intervals
-        if episode % network_save_intervals == 0:
-            actor_model_filename = "learned_actor_network_ep" + str(episode)
-            if problem_choice == 1:
-                if artery_prob:
-                    actor_model_filename += "_artery"
-                else:
-                    actor_model_filename += "_eqstiff"
-            else:
-                if assign_prob:
-                    actor_model_filename += "_assign"
-                else:
-                    actor_model_filename += "_partition"
-            
-            actor_model_filename += ".pth"
-
-            torch.save(actor.state_dict(), os.path.join(current_save_path, actor_model_filename))
-
-            critic_model_filename = "learned_critic_network_ep" + str(episode)
-            if problem_choice == 1:
-                if artery_prob:
-                    critic_model_filename += "_artery"
-                else:
-                    critic_model_filename += "_eqstiff"
-            else:
-                if assign_prob:
-                    critic_model_filename += "_assign"
-                else:
-                    critic_model_filename += "_partition"
-                    
-            critic_model_filename += ".pth"
-
-            torch.save(critic.state_dict(), os.path.join(current_save_path, critic_model_filename))
-
         # Evaluate actor at chosen intervals
         if compute_periodic_returns:
             if episode % eval_interval == 0:
@@ -738,9 +795,6 @@ for run_num in range(n_runs):
                     )
                     del eval_rollout
                 policy_module.train()
-
-            #pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
-            pbar_steps.set_description(", ".join([eval_str, cumul_reward_str, lr_str]))
 
         if updated_nfe >= max_unique_nfe_run:
             # Extend the logs to complete them as if all episodes were run

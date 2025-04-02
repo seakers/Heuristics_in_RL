@@ -3,10 +3,6 @@
 Training and saving a PPO agent using PyTorch methods - incorporating support for multiprocessing runs
 Reference: https://pytorch.org/tutorials/intermediate/reinforcement_ppo.html
 
-TODO:
-1. Plotting
-2. General debugging
-
 @author: roshan94
 """
 import os
@@ -53,13 +49,13 @@ from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from torchrl.envs.libs.gym import GymWrapper
 from tqdm import tqdm
-from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
-from envs.metamaterial.ArteryOneDecisionEnv import ArteryOneDecisionEnv
-from envs.metamaterial.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
-from envs.metamaterial.EqualStiffnessOneDecisionEnv import EqualStiffnessOneDecisionEnv
-from envs.eoss.AssignmentOneDecisionEnv import AssignmentOneDecisionEnv
-from envs.eoss.AssignmentProblemEnv import AssignmentProblemEnv
-from save.ResultSaving import ResultSaver
+from envs.metamaterial.arteryproblemenv import ArteryProblemEnv
+from envs.metamaterial.arteryonedecisionenv import ArteryOneDecisionEnv
+from envs.metamaterial.equalstiffnessproblemenv import EqualStiffnessProblemEnv
+from envs.metamaterial.equalstiffnessonedecisionenv import EqualStiffnessOneDecisionEnv
+from envs.eoss.assignmentonedecisionenv import AssignmentOneDecisionEnv
+from envs.eoss.assignmentproblemenv import AssignmentProblemEnv
+from save.resultsaving import ResultSaver
 
 import numpy as np
 import math 
@@ -493,15 +489,15 @@ def training_run(rank, world_size, run_num, problem_choice):
     actor.to(rank)
     critic.to(rank)
 
-    actor_ddp = DDP(actor, device_ids=[rank])
-    critic_ddp = DDP(critic, device_ids=[rank])
+    # actor_ddp = DDP(actor, device_ids=[rank])
+    # critic_ddp = DDP(critic, device_ids=[rank])
 
     if include_weights:
-        policy_module = TensorDictModule(actor_ddp, in_keys=["design"], out_keys=["logits"])
-        #policy_module = TensorDictModule(actor, in_keys=["design"], out_keys=["logits"])
+        # policy_module = TensorDictModule(actor_ddp, in_keys=["design"], out_keys=["logits"])
+        policy_module = TensorDictModule(actor, in_keys=["design"], out_keys=["logits"])
     else:
-        policy_module = TensorDictModule(actor_ddp, in_keys=["observation"], out_keys=["logits"])
-        #policy_module = TensorDictModule(actor, in_keys=["observation"], out_keys=["logits"])
+        # policy_module = TensorDictModule(actor_ddp, in_keys=["observation"], out_keys=["logits"])
+        policy_module = TensorDictModule(actor, in_keys=["observation"], out_keys=["logits"])
 
     policy_module = ProbabilisticActor(
     module=policy_module,
@@ -514,12 +510,12 @@ def training_run(rank, world_size, run_num, problem_choice):
 
     if include_weights:
         value_module = ValueOperator(
-        module=critic_ddp,
+        module=critic,
         in_keys=["design"],
         )
     else:
         value_module = ValueOperator(
-        module=critic_ddp,
+        module=critic,
         in_keys=["observation"],
         )
 
@@ -583,9 +579,14 @@ def training_run(rank, world_size, run_num, problem_choice):
     #update_nfe = 0
     actor_losses_data = []
     critic_losses_data = []
+    eval_losses_data = []
+    training_episodes = []
+    evaluation_episodes = []
+    evaluation_mean_reward = []
+    evaluation_cumul_reward = []
     
     # We iterate over the collector until it reaches the total number of frames it was designed to collect:
-    run_logs = {}
+    #run_logs = {}
     for episode, tensordict_data in enumerate(collector):
 
         data_view = tensordict_data.reshape(-1)
@@ -658,12 +659,13 @@ def training_run(rank, world_size, run_num, problem_choice):
             if torch.isnan(loss_vals["loss_objective"]) or torch.isnan(loss_vals["loss_critic"]) or torch.isnan(loss_vals["loss_entropy"]):
                 print('Check')
 
-            print('Episode: ', episode, ' Epoch:', epoch)
+            print('Device:', rank, 'Episode: ', episode, ' Epoch:', epoch)
             print('Actor clipping loss: ', loss_vals["loss_objective"].detach().cpu().numpy())
             print('Critic loss: ', loss_vals["loss_critic"].detach().cpu().numpy())
             print('Entropy bonus: ', loss_vals["loss_entropy"].detach().cpu().numpy())
             print('Critic coef.: ', critic_loss_coeff)
             print('Entropy coef.:', ent_coeff)
+            print('Learning rate: ', optim.param_groups[0]["lr"])
             print('\n')
 
             # Optimization: backward, grad clipping and optimization step
@@ -682,35 +684,36 @@ def training_run(rank, world_size, run_num, problem_choice):
             actor_entropy_loss.append(loss_vals["loss_entropy"].detach().cpu().numpy())
             critic_loss.append(loss_vals["loss_critic"].detach().cpu().numpy())
 
-            run_logs["run " + str(run_num)]["actor clipping loss"].append(loss_vals["loss_objective"].detach().cpu().numpy())
-            run_logs["run " + str(run_num)]["critic loss"].append(loss_vals["loss_critic"].detach().cpu().numpy())
-            run_logs["run " + str(run_num)]["actor entropy loss"].append(loss_vals["loss_entropy"].detach().cpu().numpy())
-            run_logs["run " + str(run_num)]["episode epochs"].append((episode*train_epochs) + epoch)
+            # run_logs["run " + str(run_num)]["actor clipping loss"].append(loss_vals["loss_objective"].detach().cpu().numpy())
+            # run_logs["run " + str(run_num)]["critic loss"].append(loss_vals["loss_critic"].detach().cpu().numpy())
+            # run_logs["run " + str(run_num)]["actor entropy loss"].append(loss_vals["loss_entropy"].detach().cpu().numpy())
+            # run_logs["run " + str(run_num)]["episode epochs"].append((episode*train_epochs) + epoch)
 
         mean_clipping_loss = np.mean(actor_clip_loss)
         mean_entropy_loss = np.mean(actor_entropy_loss)
         mean_critic_loss = np.mean(critic_loss)
-        run_logs["run " + str(run_num)]["mean actor clipping loss"].append(mean_clipping_loss)
-        run_logs["run " + str(run_num)]["mean actor entropy loss"].append(mean_entropy_loss)
-        run_logs["run " + str(run_num)]["mean critic loss"].append(mean_critic_loss)
+        # run_logs["run " + str(run_num)]["mean actor clipping loss"].append(mean_clipping_loss)
+        # run_logs["run " + str(run_num)]["mean actor entropy loss"].append(mean_entropy_loss)
+        # run_logs["run " + str(run_num)]["mean critic loss"].append(mean_critic_loss)
 
         actor_losses_data.append([episode, mean_clipping_loss, mean_entropy_loss])
         critic_losses_data.append([episode, mean_critic_loss])
 
-        run_logs["run " + str(run_num)]["reward"].append(tensordict_data["next", "reward"].mean().item())
-        #pbar_steps.update(tensordict_data.numel())
-        avg_reward = run_logs["run " + str(run_num)]['reward'][-1]
-        init_reward = run_logs["run " + str(run_num)]['reward'][0]
-        cumul_reward_str = (
-            f"average reward={avg_reward: 4.4f} (init={init_reward: 4.4f})"
-        )
+        # run_logs["run " + str(run_num)]["reward"].append(tensordict_data["next", "reward"].mean().item())
+        # #pbar_steps.update(tensordict_data.numel())
+        # avg_reward = run_logs["run " + str(run_num)]['reward'][-1]
+        # init_reward = run_logs["run " + str(run_num)]['reward'][0]
+        # cumul_reward_str = (
+        #     f"average reward={avg_reward: 4.4f} (init={init_reward: 4.4f})"
+        # )
         #logs["step_count"].append(tensordict_data["step_count"].max().item())
         #stepcount_str = f"step count (max): {logs['step_count'][-1]}"
-        run_logs["run " + str(run_num)]["lr"].append(optim.param_groups[0]["lr"])
-        current_lr = run_logs["run " + str(run_num)]['lr'][-1]
-        lr_str = f"lr policy: {current_lr: .6f}"
+        # run_logs["run " + str(run_num)]["lr"].append(optim.param_groups[0]["lr"])
+        # current_lr = run_logs["run " + str(run_num)]['lr'][-1]
+        # lr_str = f"lr policy: {optim.param_groups[0]["lr"]: .6f}"
         
-        run_logs["run " + str(run_num)]["train episode"].append(episode)
+        # run_logs["run " + str(run_num)]["train episode"].append(episode)
+        training_episodes.append(episode)
 
         # Save current trained actor and critic networks at regular intervals
         if episode % network_save_intervals == 0:
@@ -728,8 +731,8 @@ def training_run(rank, world_size, run_num, problem_choice):
             
             actor_model_filename += ".pth"
 
-            torch.save(actor_ddp.module.state_dict(), os.path.join(current_save_path, actor_model_filename))
-            # torch.save(actor.state_dict(), os.path.join(current_save_path, actor_model_filename))
+            # torch.save(actor_ddp.module.state_dict(), os.path.join(current_save_path, actor_model_filename))
+            torch.save(actor.state_dict(), os.path.join(current_save_path, actor_model_filename))
 
             critic_model_filename = "learned_critic_network_ep" + str(episode)
             if problem_choice == 1:
@@ -745,8 +748,8 @@ def training_run(rank, world_size, run_num, problem_choice):
                     
             critic_model_filename += ".pth"
 
-            torch.save(critic_ddp.module.state_dict(), os.path.join(current_save_path, critic_model_filename))
-            # torch.save(critic.state_dict(), os.path.join(current_save_path, critic_model_filename))
+            # torch.save(critic_ddp.module.state_dict(), os.path.join(current_save_path, critic_model_filename))
+            torch.save(critic.state_dict(), os.path.join(current_save_path, critic_model_filename))
 
         # Evaluate actor at chosen intervals
         if compute_periodic_returns:
@@ -761,19 +764,26 @@ def training_run(rank, world_size, run_num, problem_choice):
                 with set_exploration_type(ExplorationType.RANDOM), torch.no_grad(): # ExplorationType.MEAN is nan for Categorical Distribution, ExplorationType.MODE chooses the action with the highest probability, ExplorationType.RANDOM samples the distribution for an action
                     # execute a rollout with the trained policy
                     eval_rollout = eval_env.rollout(max_eval_steps, policy_module)
-                    run_logs["run " + str(run_num)]["eval episode"].append(episode)
-                    run_logs["run " + str(run_num)]["eval reward"].append(eval_rollout["next", "reward"].mean().item())
-                    run_logs["run " + str(run_num)]["eval reward (sum)"].append(
-                        eval_rollout["next", "reward"].sum().item()
-                    )
+                    # run_logs["run " + str(run_num)]["eval episode"].append(episode)
+                    # run_logs["run " + str(run_num)]["eval reward"].append(eval_rollout["next", "reward"].mean().item())
+                    # run_logs["run " + str(run_num)]["eval reward (sum)"].append(
+                    #     eval_rollout["next", "reward"].sum().item()
+                    # )
+
+                    evaluation_episodes.append(episode)
+                    evaluation_mean_reward.append(eval_rollout["next", "reward"].mean().item())
+                    evaluation_cumul_reward.append(eval_rollout["next", "reward"].sum().item())
+
+                    eval_losses_data.append([episode, eval_rollout["next", "reward"].mean().item(), eval_rollout["next", "reward"].sum().item()])
+
                     #logs["eval step_count"].append(eval_rollout["step_count"].max().item())
-                    eval_reward_sum = run_logs["run " + str(run_num)]['eval reward (sum)'][-1]
-                    init_eval_reward_sum = run_logs["run " + str(run_num)]['eval reward (sum)'][0]
-                    eval_str = (
-                        f"eval cumulative reward: {eval_reward_sum: 4.4f} "
-                        f"(init: {init_eval_reward_sum: 4.4f}) "
-                        #f"eval step-count: {logs['eval step_count'][-1]}"
-                    )
+                    # eval_reward_sum = run_logs["run " + str(run_num)]['eval reward (sum)'][-1]
+                    # init_eval_reward_sum = run_logs["run " + str(run_num)]['eval reward (sum)'][0]
+                    # eval_str = (
+                    #     f"eval cumulative reward: {eval_reward_sum: 4.4f} "
+                    #     f"(init: {init_eval_reward_sum: 4.4f}) "
+                    #     #f"eval step-count: {logs['eval step_count'][-1]}"
+                    # )
                     del eval_rollout
                 policy_module.train()
 
@@ -783,20 +793,37 @@ def training_run(rank, world_size, run_num, problem_choice):
         if updated_nfe >= max_unique_nfe_run:
             # Extend the logs to complete them as if all episodes were run
             if episode < original_max_train_episodes:
-                run_logs["run " + str(run_num)]["actor clipping loss"].extend([run_logs["run " + str(run_num)]["actor clipping loss"][-1] for i in range((original_max_train_episodes - episode -1)*train_epochs)])
-                run_logs["run " + str(run_num)]["critic loss"].extend([run_logs["run " + str(run_num)]["critic loss"][-1] for i in range((original_max_train_episodes - episode - 1)*train_epochs)])
-                run_logs["run " + str(run_num)]["actor entropy loss"].extend([run_logs["run " + str(run_num)]["actor entropy loss"][-1] for i in range((original_max_train_episodes - episode - 1)*train_epochs)])
-                run_logs["run " + str(run_num)]["mean actor clipping loss"].extend([run_logs["run " + str(run_num)]["mean actor clipping loss"][-1] for i in range(original_max_train_episodes - episode - 1)])
-                run_logs["run " + str(run_num)]["mean critic loss"].extend([run_logs["run " + str(run_num)]["mean critic loss"][-1] for i in range(original_max_train_episodes - episode - 1)])
-                run_logs["run " + str(run_num)]["mean actor entropy loss"].extend([run_logs["run " + str(run_num)]["mean actor entropy loss"][-1] for i in range(original_max_train_episodes - episode - 1)])
-                run_logs["run " + str(run_num)]["episode epochs"].extend([run_logs["run " + str(run_num)]["episode epochs"][-1] for i in range((original_max_train_episodes - episode - 1)*train_epochs)])
-                run_logs["run " + str(run_num)]["reward"].extend([run_logs["run " + str(run_num)]["reward"][-1] for i in range(original_max_train_episodes - episode - 1)])
-                run_logs["run " + str(run_num)]["lr"].extend([run_logs["run " + str(run_num)]["lr"][-1] for i in range(original_max_train_episodes - episode - 1)])
-                run_logs["run " + str(run_num)]["train episode"].extend([(episode + i) for i in range(original_max_train_episodes - episode - 1)])
+                # run_logs["run " + str(run_num)]["actor clipping loss"].extend([run_logs["run " + str(run_num)]["actor clipping loss"][-1] for i in range((original_max_train_episodes - episode -1)*train_epochs)])
+                # run_logs["run " + str(run_num)]["critic loss"].extend([run_logs["run " + str(run_num)]["critic loss"][-1] for i in range((original_max_train_episodes - episode - 1)*train_epochs)])
+                # run_logs["run " + str(run_num)]["actor entropy loss"].extend([run_logs["run " + str(run_num)]["actor entropy loss"][-1] for i in range((original_max_train_episodes - episode - 1)*train_epochs)])
+                # run_logs["run " + str(run_num)]["mean actor clipping loss"].extend([run_logs["run " + str(run_num)]["mean actor clipping loss"][-1] for i in range(original_max_train_episodes - episode - 1)])
+                # run_logs["run " + str(run_num)]["mean critic loss"].extend([run_logs["run " + str(run_num)]["mean critic loss"][-1] for i in range(original_max_train_episodes - episode - 1)])
+                # run_logs["run " + str(run_num)]["mean actor entropy loss"].extend([run_logs["run " + str(run_num)]["mean actor entropy loss"][-1] for i in range(original_max_train_episodes - episode - 1)])
+                # run_logs["run " + str(run_num)]["episode epochs"].extend([run_logs["run " + str(run_num)]["episode epochs"][-1] for i in range((original_max_train_episodes - episode - 1)*train_epochs)])
+                # run_logs["run " + str(run_num)]["reward"].extend([run_logs["run " + str(run_num)]["reward"][-1] for i in range(original_max_train_episodes - episode - 1)])
+                # run_logs["run " + str(run_num)]["lr"].extend([run_logs["run " + str(run_num)]["lr"][-1] for i in range(original_max_train_episodes - episode - 1)])
+                # run_logs["run " + str(run_num)]["train episode"].extend([(episode + i) for i in range(original_max_train_episodes - episode - 1)])
+                # if (original_max_train_episodes - episode) >= eval_interval:
+                #     run_logs["run " + str(run_num)]["eval episode"].extend([i for i in range(episode, original_max_train_episodes, eval_interval)])
+                #     run_logs["run " + str(run_num)]["eval reward"].extend([run_logs["run " + str(run_num)]["eval reward"][-1] for i in range(int((original_max_train_episodes - episode - 1)/eval_interval))])
+                #     run_logs["run " + str(run_num)]["eval reward (sum)"].extend([run_logs["run " + str(run_num)]["eval reward"][-1] for i in range(int((original_max_train_episodes - episode - 1)/eval_interval))])
+
                 if (original_max_train_episodes - episode) >= eval_interval:
-                    run_logs["run " + str(run_num)]["eval episode"].extend([i for i in range(episode, original_max_train_episodes, eval_interval)])
-                    run_logs["run " + str(run_num)]["eval reward"].extend([run_logs["run " + str(run_num)]["eval reward"][-1] for i in range(int((original_max_train_episodes - episode - 1)/eval_interval))])
-                    run_logs["run " + str(run_num)]["eval reward (sum)"].extend([run_logs["run " + str(run_num)]["eval reward"][-1] for i in range(int((original_max_train_episodes - episode - 1)/eval_interval))])
+                    evaluation_episodes.extend([i for i in range(episode, original_max_train_episodes, eval_interval)])
+                    evaluation_mean_reward.extend([evaluation_mean_reward[-1] for i in range(int((original_max_train_episodes - episode - 1)/eval_interval))])
+                    evaluation_cumul_reward.extend([evaluation_cumul_reward[-1] for i in range(int((original_max_train_episodes - episode - 1)/eval_interval))])
+
+                    latest_mean_clipping_loss = actor_losses_data[-1,1]
+                    latest_mean_entropy_loss = actor_losses_data[-1,2]
+                    latest_mean_critic_loss = critic_losses_data[-1,1]
+                    latest_mean_evaluation_loss = eval_losses_data[-1, 1]
+                    latest_cumul_evaluation_loss = eval_losses_data[-1, 2]
+
+                    for ep in range(episode + 1, original_max_train_episodes, 1):
+                        actor_losses_data.append([ep, latest_mean_clipping_loss, latest_mean_entropy_loss])
+                        critic_losses_data.append([episode, latest_mean_critic_loss])
+                        eval_losses_data.append([episode, latest_mean_evaluation_loss, latest_cumul_evaluation_loss])
+
             break
 
         # We're also using a learning rate scheduler. Like the gradient clipping,
@@ -825,6 +852,14 @@ def training_run(rank, world_size, run_num, problem_choice):
             writer.writerow(critic_losses_fields)
             writer.writerows(critic_losses_data)
 
+    # Save evaluation results
+    eval_losses_fields = ["Episode No.", "Mean Evaluation Reward", "Cumulative Evaluation Reward"]
+    eval_losses_savepath = os.path.join(current_save_path, "evaluation_losses_run.csv")
+
+    with open(eval_losses_savepath, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(eval_losses_fields)
+        
     # Save trained actor and critic networks
     actor_model_filename = "learned_actor_network_final"
     if problem_choice == 1:
@@ -840,8 +875,8 @@ def training_run(rank, world_size, run_num, problem_choice):
 
     actor_model_filename += ".pth"
 
-    torch.save(actor_ddp.module.state_dict(), os.path.join(current_save_path, actor_model_filename))
-    # torch.save(actor.state_dict(), os.path.join(current_save_path, actor_model_filename))
+    # torch.save(actor_ddp.module.state_dict(), os.path.join(current_save_path, actor_model_filename))
+    torch.save(actor.state_dict(), os.path.join(current_save_path, actor_model_filename))
 
     critic_model_filename = "learned_critic_network_final"
     if problem_choice == 1:
@@ -857,12 +892,12 @@ def training_run(rank, world_size, run_num, problem_choice):
 
     critic_model_filename += ".pth"
 
-    torch.save(critic_ddp.module.state_dict(), os.path.join(current_save_path, critic_model_filename))
-    # torch.save(critic.state_dict(), os.path.join(current_save_path, critic_model_filename))
+    # torch.save(critic_ddp.module.state_dict(), os.path.join(current_save_path, critic_model_filename))
+    torch.save(critic.state_dict(), os.path.join(current_save_path, critic_model_filename))
 
     # Save run logs
-    with open(os.path.join(current_save_path, 'run_logs.txt'), 'rw') as run_log_file:
-        run_log_file.write(json.dumps(run_logs))
+    # with open(os.path.join(current_save_path, 'run_logs.txt'), 'rw') as run_log_file:
+    #     run_log_file.write(json.dumps(run_logs))
 
     cleanup()
 
@@ -875,12 +910,11 @@ def training_run(rank, world_size, run_num, problem_choice):
 #################################################################################################
 
 def plotting_training_results(run_logs, plot_params):
-    n_episodes_per_fig = 4 # used for plotting returns and losses 
-    linestyles = ['solid','dotted','dashed','dashdot']
+    # n_episodes_per_fig = 4 # used for plotting returns and losses 
+    # linestyles = ['solid','dotted','dashed','dashdot']
 
     n_runs = plot_params["Number of runs"]
     original_max_train_episodes = plot_params["Number of training episodes"] 
-    train_epochs = plot_params["Number of training epochs"] 
     problem_choice = plot_params["Problem choice"] 
     artery_prob = plot_params["Artery Problem"] 
     assign_prob = plot_params["Assign Problem"]
@@ -888,20 +922,10 @@ def plotting_training_results(run_logs, plot_params):
     eval_interval = plot_params["Episode interval for evaluation"]
 
     # Compute loss statistics across runs
-    actor_clipping_loss_stats = {}
-    critic_loss_stats = {}
-    actor_entropy_loss_stats = {}
-    overall_loss_stats = {}
-
     mean_actor_clipping_loss_stats = {}
     mean_critic_loss_stats = {}
     mean_actor_entropy_loss_stats = {}
     mean_overall_loss_stats = {}
-
-    actor_clipping_loss_runs = np.zeros((n_runs, original_max_train_episodes*train_epochs))
-    critic_loss_runs = np.zeros((n_runs, original_max_train_episodes*train_epochs))
-    actor_entropy_loss_runs = np.zeros((n_runs, original_max_train_episodes*train_epochs))
-    overall_loss_runs = np.zeros((n_runs, original_max_train_episodes*train_epochs))
 
     mean_actor_clipping_loss_runs = np.zeros((n_runs, original_max_train_episodes))
     mean_critic_loss_runs = np.zeros((n_runs, original_max_train_episodes))
@@ -909,31 +933,10 @@ def plotting_training_results(run_logs, plot_params):
     mean_overall_loss_runs = np.zeros((n_runs, original_max_train_episodes))
 
     for run_num in range(n_runs):
-        actor_clipping_loss_runs[run_num, :] = run_logs["run " + str(run_num)]["actor clipping loss"]
-        critic_loss_runs[run_num, :] = run_logs["run " + str(run_num)]["critic loss"]
-        actor_entropy_loss_runs[run_num, :] = run_logs["run " + str(run_num)]["actor entropy loss"]
-        overall_loss_runs[run_num, :] = [np.sum(x) for x in zip(run_logs["run " + str(run_num)]["actor clipping loss"], run_logs["run " + str(run_num)]["critic loss"], run_logs["run " + str(run_num)]["actor entropy loss"])]
-
         mean_actor_clipping_loss_runs[run_num, :] = run_logs["run " + str(run_num)]["mean actor clipping loss"]
         mean_critic_loss_runs[run_num, :] = run_logs["run " + str(run_num)]["mean critic loss"]
         mean_actor_entropy_loss_runs[run_num, :] = run_logs["run " + str(run_num)]["mean actor entropy loss"]
         mean_overall_loss_runs[run_num, :] = [np.sum(x) for x in zip(run_logs["run " + str(run_num)]["mean actor clipping loss"], run_logs["run " + str(run_num)]["mean critic loss"], run_logs["run " + str(run_num)]["mean actor entropy loss"])]
-        
-    actor_clipping_loss_stats['median'] = np.median(actor_clipping_loss_runs, axis=0)
-    actor_clipping_loss_stats['first quartile'] = np.percentile(actor_clipping_loss_runs, 25, axis=0)
-    actor_clipping_loss_stats['third quartile'] = np.percentile(actor_clipping_loss_runs, 75, axis=0)
-
-    critic_loss_stats['median'] = np.median(critic_loss_runs, axis=0)
-    critic_loss_stats['first quartile'] = np.percentile(critic_loss_runs, 25, axis=0)
-    critic_loss_stats['third quartile'] = np.percentile(critic_loss_runs, 75, axis=0)
-
-    actor_entropy_loss_stats['median'] = np.median(actor_entropy_loss_runs, axis=0)
-    actor_entropy_loss_stats['first quartile'] = np.percentile(actor_entropy_loss_runs, 25, axis=0)
-    actor_entropy_loss_stats['third quartile'] = np.percentile(actor_entropy_loss_runs, 75, axis=0)
-
-    overall_loss_stats['median'] = np.median(overall_loss_runs, axis=0)
-    overall_loss_stats['first quartile'] = np.percentile(overall_loss_runs, 25, axis=0)
-    overall_loss_stats['third quartile'] = np.percentile(overall_loss_runs, 75, axis=0)
 
     mean_actor_clipping_loss_stats['median'] = np.median(mean_actor_clipping_loss_runs, axis=0)
     mean_actor_clipping_loss_stats['first quartile'] = np.percentile(mean_actor_clipping_loss_runs, 25, axis=0)
@@ -950,61 +953,6 @@ def plotting_training_results(run_logs, plot_params):
     mean_overall_loss_stats['median'] = np.median(mean_overall_loss_runs, axis=0)
     mean_overall_loss_stats['first quartile'] = np.percentile(mean_overall_loss_runs, 25, axis=0)
     mean_overall_loss_stats['third quartile'] = np.percentile(mean_overall_loss_runs, 75, axis=0)
-
-    # Plotting losses
-    plt.figure(figsize=(10, 10))
-
-    plt.subplot(2, 2, 1)
-    plt.plot(run_logs["run 0"]["episode epochs"], actor_clipping_loss_stats['median']) 
-    plt.fill_between(run_logs["run 0"]["episode epochs"], actor_clipping_loss_stats['first quartile'], actor_clipping_loss_stats['third quartile'], alpha=0.5)
-    for i in range(original_max_train_episodes): # Vertical lines to denote episode demarcations
-        plt.plot([i*train_epochs for j in range(100)], np.linspace(0, np.max([np.max(actor_clipping_loss_stats['median']), np.max(actor_clipping_loss_stats['first quartile']), np.max(actor_clipping_loss_stats['third quartile'])]), 100), '--r')
-    plt.xlabel("Training Epoch")
-    plt.ylabel("Loss")
-    plt.title("Actor Clipping Loss")
-
-    plt.subplot(2, 2, 2)
-    plt.plot(run_logs["run 0"]["episode epochs"], critic_loss_stats['median']) 
-    plt.fill_between(run_logs["run 0"]["episode epochs"], critic_loss_stats['first quartile'], critic_loss_stats['third quartile'], alpha=0.5)
-    for i in range(original_max_train_episodes): # Vertical lines to denote episode demarcations
-        plt.plot([i*train_epochs for j in range(100)], np.linspace(0, np.max([np.max(critic_loss_stats['median']), np.max(critic_loss_stats['first quartile']), np.max(critic_loss_stats['third quartile'])]), 100), '--r')
-    plt.xlabel("Training Epoch")
-    plt.ylabel("Loss")
-    plt.title("Critic Loss")
-
-    plt.subplot(2, 2, 3)
-    plt.plot(run_logs["run 0"]["episode epochs"], actor_entropy_loss_stats['median']) 
-    plt.fill_between(run_logs["run 0"]["episode epochs"], actor_entropy_loss_stats['first quartile'], actor_entropy_loss_stats['third quartile'], alpha=0.5)
-    for i in range(original_max_train_episodes): # Vertical lines to denote episode demarcations
-        plt.plot([i*train_epochs for j in range(100)], np.linspace(0, np.max([np.max(actor_entropy_loss_stats['median']), np.max(actor_entropy_loss_stats['first quartile']), np.max(actor_entropy_loss_stats['third quartile'])]), 100), '--r')
-    plt.xlabel("Training Epoch")
-    plt.ylabel("Loss")
-    plt.title("Actor Entropy Loss")
-
-    plt.subplot(2, 2, 4)
-    plt.plot(run_logs["run 0"]["episode epochs"], overall_loss_stats['median']) 
-    plt.fill_between(run_logs["run 0"]["episode epochs"], overall_loss_stats['first quartile'], overall_loss_stats['third quartile'], alpha=0.5)
-    for i in range(original_max_train_episodes): # Vertical lines to denote episode demarcations
-        plt.plot([i*train_epochs for j in range(100)], np.linspace(0, np.max([np.max(overall_loss_stats['median']), np.max(overall_loss_stats['first quartile']), np.max(overall_loss_stats['third quartile'])]), 100), '--r')
-    plt.xlabel("Training Epoch")
-    plt.ylabel("Loss")
-    plt.title("Overall Loss")
-
-    actor_losses_filename = "actor_losses"
-    if problem_choice == 1:
-        if artery_prob:
-            actor_losses_filename += "_artery"
-        else:
-            actor_losses_filename += "_eqstiff"
-    else:
-        if assign_prob:
-            actor_losses_filename += "_assign"
-        else:
-            actor_losses_filename += "_partition"
-
-    actor_losses_filename += ".png"
-    plt.savefig(os.path.join(save_path, actor_losses_filename))
-    #plt.show()
 
     # Plotting mean losses
     plt.figure(figsize=(10, 10))
@@ -1061,8 +1009,8 @@ def plotting_training_results(run_logs, plot_params):
     eval_return_runs = np.zeros((n_runs, int(original_max_train_episodes/eval_interval)))
 
     for run_num in range(n_runs):
-        eval_mean_reward_runs[run_num, :] = run_logs["run " + str(run_num)]["eval reward"]
-        eval_return_runs[run_num, :] = run_logs["run " + str(run_num)]["eval reward (sum)"]
+        eval_mean_reward_runs[run_num, :] = run_logs["run " + str(run_num)]["eval mean reward"]
+        eval_return_runs[run_num, :] = run_logs["run " + str(run_num)]["eval cumul reward"]
 
     eval_mean_reward_stats['median'] = np.median(eval_mean_reward_runs, axis=0)
     eval_mean_reward_stats['first quartile'] = np.percentile(eval_mean_reward_runs, 25, axis=0)
@@ -1160,7 +1108,6 @@ if __name__ == '__main__':
     plot_params["Savepath"] = save_path
     plot_params["Episode interval for evaluation"] = eval_interval
 
-    main_run_logs = defaultdict(lambda: defaultdict(list))
     world_size = torch.cuda.device_count() # number of processes to spawn
 
     processes = []
@@ -1186,19 +1133,48 @@ if __name__ == '__main__':
         mp.spawn(training_run, args=(world_size, run_number, problem_choice), nprocs=world_size)
         run_number += 1
 
-    # Combine run logs into main_run_logs
-    print('Combining run logs')
-    for i in range(n_runs):
-        saved_run_log = {}
-        current_save_path = os.path.join(save_path, "run "+str(i))
-        with open(os.path.join(current_save_path, 'run_logs.txt')) as file:
-            for line in file:
-                (key, val) = line.split()
-                saved_run_log[key] = val
-        main_run_logs["run " + str(i)] = saved_run_log
+    # Combine individual run results into run_logs
+    print('Combining run results')
+    run_logs = defaultdict(lambda: defaultdict(list))
+
+    for n in range(n_runs):
+        current_save_path = os.path.join(save_path, "run " + str(n))
+
+        actor_losses_savepath = os.path.join(current_save_path, "mean_actor_losses.csv")
+        critic_losses_savepath = os.path.join(current_save_path, "mean_critic_losses.csv")  
+
+        eval_losses_savepath = os.path.join(current_save_path, "evaluation_losses_run.csv")
+
+        mean_actor_clipping_loss_run = []
+        mean_actor_entropy_loss_run = []
+        with open(actor_losses_savepath, 'r') as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                mean_actor_clipping_loss_run.append(row[1])
+                mean_actor_entropy_loss_run.append(row[2])
+                
+        mean_critic_loss_run = []
+        with open(critic_losses_savepath, 'r') as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                mean_critic_loss_run.append(row[1])
+
+        mean_eval_reward_run = []
+        cumul_eval_reward_run = []
+        with open(eval_losses_savepath, 'r') as csv_file:
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                mean_eval_reward_run.append(row[1])
+                cumul_eval_reward_run.append(row[2])
+
+        run_logs["run " + str(n)]["mean actor clipping loss"] = mean_actor_clipping_loss_run
+        run_logs["run " + str(n)]["mean actor entropy loss"] = mean_actor_entropy_loss_run
+        run_logs["run " + str(n)]["mean critic loss"] = mean_critic_loss_run
+        run_logs["run " + str(n)]["eval mean reward"] = mean_eval_reward_run
+        run_logs["run " + str(n)]["eval cumul reward"] = cumul_eval_reward_run
 
     print('Plotting combined results')
-    plotting_training_results(main_run_logs, plot_params)
+    plotting_training_results(run_logs, plot_params)
 
     end_time = time.time()
 

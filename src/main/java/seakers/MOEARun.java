@@ -2,6 +2,7 @@ package seakers;
 
 import com.mathworks.engine.MatlabEngine;
 import org.apache.commons.math3.util.CombinatoricsUtils;
+import org.moeaframework.Instrumenter;
 import org.moeaframework.algorithm.EpsilonMOEA;
 import org.moeaframework.core.*;
 import org.moeaframework.core.comparator.AggregateConstraintComparator;

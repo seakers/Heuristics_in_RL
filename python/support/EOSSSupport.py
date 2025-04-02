@@ -6,7 +6,7 @@ Support class for the EOSS design problems with support methods including evalua
 """
 import numpy as np
 import torch
-from support.EOSSDesign import EOSSDesign
+from support.eossdesign import EOSSDesign
 from collections import OrderedDict
 from itertools import compress
 from copy import deepcopy

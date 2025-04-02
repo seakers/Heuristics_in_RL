@@ -25,7 +25,7 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 parent_path = str(Path(current_path).resolve().parents[1]) # parents[i] is the i-th parent from the current directory
 sys.path.append(parent_path)
 
-from save.ResultSaving import ResultSaver
+from save.resultsaving import ResultSaver
 
 from torchrl.envs.libs.gym import GymWrapper
 from torchrl.envs import (Compose, RewardSum, TransformedEnv)
@@ -33,12 +33,12 @@ from torchrl.envs.utils import check_env_specs, ExplorationType, set_exploration
 from tensordict.nn import TensorDictModule
 from torchrl.modules import ProbabilisticActor
 from torch.distributions import OneHotCategorical
-from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
-from envs.metamaterial.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
-from envs.metamaterial.ArteryOneDecisionEnv import ArteryOneDecisionEnv
-from envs.metamaterial.EqualStiffnessOneDecisionEnv import EqualStiffnessOneDecisionEnv
-from envs.eoss.AssignmentOneDecisionEnv import AssignmentOneDecisionEnv
-from envs.eoss.AssignmentProblemEnv import AssignmentProblemEnv
+from envs.metamaterial.arteryproblemenv import ArteryProblemEnv
+from envs.metamaterial.equalstiffnessproblemenv import EqualStiffnessProblemEnv
+from envs.metamaterial.arteryonedecisionenv import ArteryOneDecisionEnv
+from envs.metamaterial.equalstiffnessonedecisionenv import EqualStiffnessOneDecisionEnv
+from envs.eoss.assignmentonedecisionenv import AssignmentOneDecisionEnv
+from envs.eoss.assignmentproblemenv import AssignmentProblemEnv
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -313,7 +313,7 @@ else:
 check_env_specs(env)
 
 learned_agent = ActorNetwork(env, actor_fc_layer_params, actor_dropout_layer_params)
-#learned_agent.load_state_dict(torch.load(os.path.join(current_save_path, model_filename), weights_only=True))
+learned_agent.load_state_dict(torch.load(os.path.join(current_save_path, model_filename), weights_only=True))
 
 if include_weights:
     policy_module = TensorDictModule(learned_agent, in_keys=["design"], out_keys=["logits"])

@@ -63,13 +63,13 @@ else:
     print("Torch device: cpu")
     device = torch.device("cpu")
 
-from envs.metamaterial.ArteryProblemEnv import ArteryProblemEnv
-from envs.metamaterial.ArteryOneDecisionEnv import ArteryOneDecisionEnv
-from envs.metamaterial.EqualStiffnessProblemEnv import EqualStiffnessProblemEnv
-from envs.metamaterial.EqualStiffnessOneDecisionEnv import EqualStiffnessOneDecisionEnv
-from envs.eoss.AssignmentOneDecisionEnv import AssignmentOneDecisionEnv
-from envs.eoss.AssignmentProblemEnv import AssignmentProblemEnv
-from save.ResultSaving import ResultSaver
+from envs.metamaterial.arteryproblemenv import ArteryProblemEnv
+from envs.metamaterial.arteryonedecisionenv import ArteryOneDecisionEnv
+from envs.metamaterial.equalstiffnessproblemenv import EqualStiffnessProblemEnv
+from envs.metamaterial.equalstiffnessonedecisionenv import EqualStiffnessOneDecisionEnv
+from envs.eoss.assignmentonedecisionenv import AssignmentOneDecisionEnv
+from envs.eoss.assignmentproblemenv import AssignmentProblemEnv
+from save.resultsaving import ResultSaver
 
 import numpy as np
 import math 

@@ -293,7 +293,7 @@ class TrussFeatures:
             for member_b_idx in range(member_a_idx + 1, len(self.design_conn_array)):
                 member_b_n1, member_b_n2 = self.design_conn_array[member_b_idx]
                 b_pos_1, b_pos_2 = self.node_positions[member_b_n1], self.node_positions[member_b_n2]
-                intersects = intersect(a_pos_1, a_pos_2, b_pos_1, b_pos_2)
+                intersects = self.intersect(a_pos_1, a_pos_2, b_pos_1, b_pos_2)
                 if intersects is True:
                     angle = calculate_angle(a_pos_1, a_pos_2, b_pos_1, b_pos_2)
                     volume = estimate_intersection_volume(member_radii, angle)
@@ -376,24 +376,20 @@ class TrussFeatures:
         # print('Volume fraction:', truss_volume / total_volume)
 
         return truss_volume / total_volume
+    
+    def ccw(self, A, B, C):
+        """Check if points A, B, and C are counter-clockwise."""
+        return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
+
+    def intersect(self, A, B, C, D):
+        # cannot share a common node
+        if np.all(A == C) or np.all(A == D) or np.all(B == C) or np.all(B == D):
+            return False
+        """Check if line segments AB and CD intersect."""
+        return self.ccw(A, C, D) != self.ccw(B, C, D) and self.ccw(A, B, C) != self.ccw(A, B, D)
 
 
-
-
-
-def ccw(A, B, C):
-    """Check if points A, B, and C are counter-clockwise."""
-    return (C[1]-A[1]) * (B[0]-A[0]) > (B[1]-A[1]) * (C[0]-A[0])
-
-def intersect(A, B, C, D):
-    # cannot share a common node
-    if A == C or A == D or B == C or B == D:
-        return False
-    """Check if line segments AB and CD intersect."""
-    return ccw(A, C, D) != ccw(B, C, D) and ccw(A, B, C) != ccw(A, B, D)
-
-
-def calculate_angle(A, B, C, D):
+def calculate_angle( A, B, C, D):
     """
     Calculate the angle between vectors AB and CD.
     """

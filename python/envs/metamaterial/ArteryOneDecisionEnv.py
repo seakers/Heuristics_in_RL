@@ -9,7 +9,7 @@ import gymnasium as gym
 from gymnasium import spaces
 #import gym
 #from gym import spaces
-from support.MetamaterialSupport import MetamaterialSupport
+from support.metamaterialsupport import MetamaterialSupport
 import matplotlib.pyplot as plt
 import numpy as np
 

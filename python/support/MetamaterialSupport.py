@@ -4,14 +4,24 @@ Support class for the metamaterial design problems with support methods includin
 
 @author: roshan94
 """
+import sys
+import os
+from pathlib import Path
+current_path = os.path.dirname(os.path.realpath(__file__))
+parent_path = str(Path(current_path).resolve().parents[1]) # parents[i] is the i-th parent from the current directory
+sys.path.append(parent_path)
+
 import numpy as np
-from support.TrussDesign import TrussDesign
+from support.trussdesign import TrussDesign
 import torch
-import copy
 from models.truss.TrussFeatures import TrussFeatures
 from models.truss.TrussModel import TrussModel
 from itertools import compress
 from copy import deepcopy
+from repairoperators.metamaterial.adddiagonalmember import AddDiagonalMember
+from repairoperators.metamaterial.addmember import AddMember
+from repairoperators.metamaterial.improveorientation import ImproveOrientation
+from repairoperators.metamaterial.removeintersection import RemoveIntersection
 
 class MetamaterialSupport:
     def __init__(self, operations_instance, use_python_model, sel, sidenum, rad, E_mod, c_target, c_target_delta, nuc_fac, n_vars, model_sel, artery_prob, save_path, obj_names, constr_names, heur_names, heurs_used, new_reward, obj_max, obs_space, include_weights):
@@ -29,6 +39,7 @@ class MetamaterialSupport:
         self.obj_names = obj_names
         self.constr_names = constr_names
         self.heur_names = heur_names
+        self.heur_incorp = list(compress(heur_names, heurs_used))
 
         self.artery_prob = artery_prob
 
@@ -52,6 +63,7 @@ class MetamaterialSupport:
         self.current_design_hashset = set()
 
         # Get operations instance (the class instance will be different depending on problem, artery or equal stiffness)
+        self.heur_ops = []
         self.use_python_model = use_python_model
         self.operations_instance = operations_instance
         if not self.use_python_model:
@@ -73,6 +85,35 @@ class MetamaterialSupport:
 
             # Initialize problem instance and heuristic operators (if any) in java
             self.operations_instance.setProblem()
+        else:
+            if artery_prob:
+                problem = "Artery"
+            else:
+                problem = "Equal Stiffness"
+
+            heur_ops = []
+
+            for heur_name in self.heur_incorp:
+                match heur_name:
+                    case "Partial Collapsibility":
+                        operator = AddDiagonalMember(sidenum=sidenum, problem=problem, sel=sel)
+
+                    case "Nodal Properties":
+                        operator = AddMember(sidenum=sidenum, problem=problem, sel=sel)
+
+                    case "Orientation":
+                        operator = ImproveOrientation(sidenum=sidenum, problem=problem, sel=sel, target_c_ratio=c_target)
+
+                    case "Intersection":
+                        operator = RemoveIntersection(sidenum=sidenum, problem=problem, sel=sel)
+
+                    case _:
+                        print("Invalid operator selection")
+                        sys.exit()
+                    
+                heur_ops.append(operator)
+
+            self.heur_ops = heur_ops
 
     ## Internal method to check constrained domination
     def dominates(self, objectives, constraints, current_PF_objectives, current_PF_constraints):
@@ -332,9 +373,15 @@ class MetamaterialSupport:
                 # Take action and obtain new state
                 self.operations_instance.operate()
                 new_state_design = np.array(self.operations_instance.getNewDesign()) # possible ways to speed up: convert to byte[] in java, import and convert to python list
-            else: # TODO: MOdify current design based on repair operators
-                new_state_design = state_design.copy()
-                new_state_design[action] = 1 - state_design[action]
+            else: 
+                if action < len(state_design):
+                    new_state_design = state_design.copy()
+                    new_state_design[action] = 1 - state_design[action]
+                else: # Modify current design based on repair operators
+                    chosen_op_idx = action - len(state_design)
+                    chosen_op = self.heur_ops[chosen_op_idx]
+                    chosen_op.set_design(state_design.tolist())
+                    new_state_design = chosen_op.evolve()
             
             if self.new_reward:
                 if self.include_weights:
@@ -720,7 +767,7 @@ class MetamaterialSupport:
         new_state_cds = np.zeros((n_objs))
 
         # Compute crowding distances for each objective
-        objs_PF = copy.deepcopy(self.current_PF_objs)
+        objs_PF = deepcopy(self.current_PF_objs)
         objs_PF.append(objs_new)
 
         for i in range(n_objs):
@@ -775,8 +822,7 @@ class MetamaterialSupport:
             constrs = np.zeros(len(self.constr_names))
             constrs.fill(10)
 
-            used_heur_names = list(compress(self.heur_names, self.heurs_used))
-            heurs = np.zeros(len(used_heur_names))
+            heurs = np.zeros(len(self.heur_incorp))
             heurs.fill(10)
 
             true_objs = [1, 1]
